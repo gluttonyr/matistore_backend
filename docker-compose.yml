@@ -1,0 +1,48 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    # Port hôte différent de 5432 : tu as déjà un Postgres local qui tourne sur
+    # 5432 (celui utilisé par `npm run start:dev` hors Docker) — pas de conflit
+    # possible ainsi. La communication backend -> postgres, elle, passe par le
+    # réseau interne Docker (toujours le port 5432 côté conteneur), inchangée.
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # Surcharge des valeurs du .env local (pensées pour tourner hors Docker) :
+      # dans le réseau Compose, la base n'est pas sur "localhost" mais joignable
+      # par le nom du service, et les fichiers uploadés vivent dans un volume
+      # dédié à l'intérieur du conteneur plutôt que sur le disque de l'hôte.
+      DB_HOST: postgres
+      DB_PORT: 5432
+      UPLOAD_ROOT: /app/uploads
+    ports:
+      - "${PORT:-3000}:3000"
+    volumes:
+      - uploads_data:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  uploads_data:
