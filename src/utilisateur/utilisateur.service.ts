@@ -1,0 +1,111 @@
+import { Injectable, BadRequestException } from '@nestjs/common';
+import * as bcrypt from 'bcryptjs';
+import { User } from './entities/user.entity';
+import { CreateUserDto } from './dto/create-user.dto';
+import { UpdateUserDto } from './dto/update-user.dto';
+import { UserRepository } from './user.repository';
+import { UserMapper } from './mappers/user.mapper';
+import { DiscussionService } from 'src/discussion/discussion.service';
+import { Discussion } from 'src/discussion/entities/discussion.entity';
+
+@Injectable()
+export class UtilisateurService {
+  constructor(
+    private readonly userRepository: UserRepository,
+    private readonly userMapper: UserMapper,
+    private readonly discussionService: DiscussionService
+  ) {}
+
+  
+
+  async create(payload: CreateUserDto) {
+    
+    const existing = await this.userRepository.findOne({ where: { email: payload.email } });
+    if (existing) {
+      throw new BadRequestException('Email déjà utilisé');
+    }
+    
+    const entity = await this.userMapper.toEntity(payload);
+    if(!entity.username){
+      entity.username = payload.nom.toLowerCase() + '_' + payload.prenom.toLowerCase();
+    }
+
+    
+    
+
+    const user = this.userRepository.create({
+      ...entity,
+      active: payload.active ?? true,
+      password: payload.password
+        ? await bcrypt.hash(payload.password, 10)
+        : undefined,
+    });
+
+    const savedUser = await this.userRepository.save(user);
+
+    await this.discussionService.createForUser(savedUser);
+
+    return savedUser;
+
+  }
+
+  async findAll() {
+    return this.userRepository.find();
+  }
+
+  count() {
+    return this.userRepository.count();
+  }
+
+  countNewToday() {
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
+    return this.userRepository.countCreatedSince(startOfDay);
+  }
+
+  findByEmail(email: string) {
+    return this.userRepository.findOne({ where: { email } });
+  }
+
+  findById(id: string) {
+    return this.userRepository.findOne({ where: { trackingId: id } });
+  }
+
+  findUserById(id: number) {
+    return this.userRepository.findOne({ where: {  id } });
+  }
+
+  async updatePushToken(id: number, expoPushToken: string) {
+    const user = await this.findUserById(id);
+    if (!user) {
+      throw new BadRequestException('Utilisateur introuvable');
+    }
+    user.expoPushToken = expoPushToken;
+    return this.userRepository.save(user);
+  }
+
+  async getAllPushTokens(): Promise<string[]> {
+    const users = await this.userRepository.find();
+    return users.map((u) => u.expoPushToken).filter((t): t is string => !!t);
+  }
+
+  async update(id: string, payload: UpdateUserDto) {
+    const user = await this.findById(id);
+    if (!user) {
+      throw new BadRequestException('Utilisateur introuvable');
+    }
+    if (payload.password) {
+      payload.password = await bcrypt.hash(payload.password, 10);
+    }
+    Object.assign(user, payload);
+    return this.userRepository.save(user);
+  }
+
+  async remove(id: string) {
+    const user = await this.findById(id);
+    if (!user) {
+      throw new BadRequestException('Utilisateur introuvable');
+    }
+    return this.userRepository.remove(user);
+  }
+}

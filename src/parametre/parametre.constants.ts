@@ -1,0 +1,3 @@
+export const PARAMETRE_CODES = {
+  DISCUSSION_REFRESH: 'DISCUSSION_REFRESH',
+} as const;
