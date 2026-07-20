@@ -35,7 +35,7 @@ export class OperateurService implements OnModuleInit {
       },
       {
         trackingId: randomUUID(),
-        nom: 'Moov Money',
+        nom: 'Flooz',
         // {numero} (numéro saisi par l'utilisateur) répété deux fois, comme l'exige Moov.
         formatUssd: '*155*2*2*{numero}*{numero}*{montant}#',
         imageUrl: 'flooz.webp',
@@ -85,4 +85,5 @@ export class OperateurService implements OnModuleInit {
     }
     return this.operateurRepository.remove(operateur);
   }
+  
 }
