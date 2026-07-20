@@ -32,7 +32,7 @@
     "bcryptjs": "^3.0.3",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
-    "expo-server-sdk": "^6.1.0",
+    "expo-server-sdk": "^3.10.0",
     "google-auth-library": "^10.6.2",
     "passport-jwt": "^4.0.1",
     "pg": "^8.21.0",
