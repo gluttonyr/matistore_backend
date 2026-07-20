@@ -1,8 +1,10 @@
-import { Body, Controller, Delete, Get, Param, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, UseGuards } from '@nestjs/common';
 import { MessageReactionService } from './message-reaction.service';
 import { ApiResponse } from '../common/api-response.interface';
+import { AuthGuard } from '@nestjs/passport';
 
 @Controller('message-reactions')
+@UseGuards(AuthGuard('jwt'))
 export class MessageReactionController {
   constructor(private readonly reactionService: MessageReactionService) {}
 

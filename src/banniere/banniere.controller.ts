@@ -1,10 +1,12 @@
-import { Body, Controller, Delete, Get, Param, Post, Put, UseInterceptors, UploadedFile, BadRequestException } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Put, UseInterceptors, UploadedFile, BadRequestException, UseGuards } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { BanniereService } from './banniere.service';
 import { ApiResponse } from '../common/api-response.interface';
 import { UploadService } from '../uploads/upload.service';
 import { BanniereMapper } from './mappers/banniere.mapper';
+import { AuthGuard } from '@nestjs/passport';
 
+@UseGuards(AuthGuard('jwt'))
 @Controller('banners')
 export class BanniereController {
   constructor(

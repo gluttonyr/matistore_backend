@@ -1,8 +1,10 @@
-import { Body, Controller, Delete, Get, Param, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, UseGuards } from '@nestjs/common';
 import { DiscussionParticipantService } from './discussion-participant.service';
 import { ApiResponse } from '../common/api-response.interface';
+import { AuthGuard } from '@nestjs/passport';
 
 @Controller('discussion-participants')
+@UseGuards(AuthGuard('jwt'))
 export class DiscussionParticipantController {
   constructor(private readonly participantService: DiscussionParticipantService) {}
 

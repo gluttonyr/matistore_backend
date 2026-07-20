@@ -1,10 +1,12 @@
-import { Body, Controller, Delete, Get, Param, Post, Put } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Put, UseGuards } from '@nestjs/common';
 import { CategorieService } from './categorie.service';
 import { CreateCategorieDto } from './dto/create-categorie.dto';
 import { UpdateCategorieDto } from './dto/update-categorie.dto';
 import { ApiResponse } from '../common/api-response.interface';
 import { CategorieMapper } from './mappers/categorie.mapper';
+import { AuthGuard } from '@nestjs/passport';
 
+@UseGuards(AuthGuard('jwt'))
 @Controller('categories')
 export class CategorieController {
   constructor(private readonly categorieService: CategorieService, private readonly categorieMapper: CategorieMapper) {}

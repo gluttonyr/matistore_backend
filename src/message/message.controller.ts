@@ -6,6 +6,7 @@ import { MessageMapper } from './mappers/message.mapper';
 
 @Controller('messages')
 @UseGuards(AuthGuard('jwt'))
+
 export class MessageController {
   constructor(private readonly messageService: MessageService,private readonly messageMapper: MessageMapper) {}
 

@@ -1,11 +1,13 @@
-import { Body, Controller, Delete, Get, Param, Post, Put, UseInterceptors, UploadedFile, BadRequestException } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Put, UseInterceptors, UploadedFile, BadRequestException, UseGuards } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { StickerService } from './sticker.service';
 import { ApiResponse } from '../common/api-response.interface';
 import { UploadService } from '../uploads/upload.service';
 import { StickerMapper } from './mappers/sticker.mapper';
+import { AuthGuard } from '@nestjs/passport';
 
 @Controller('stickers')
+@UseGuards(AuthGuard('jwt'))
 export class StickerController {
   constructor(
     private readonly stickerService: StickerService,

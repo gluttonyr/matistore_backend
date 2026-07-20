@@ -1,8 +1,10 @@
-import { Body, Controller, Delete, Get, Param, Post, Put } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Put, UseGuards } from '@nestjs/common';
 import { ParametreService } from './parametre.service';
 import { ApiResponse } from '../common/api-response.interface';
+import { AuthGuard } from '@nestjs/passport';
 
 @Controller('settings')
+@UseGuards(AuthGuard('jwt'))
 export class ParametreController {
   constructor(private readonly parametreService: ParametreService) {}
 

@@ -15,10 +15,12 @@ import * as fs from 'fs';
 import * as path from 'path';
 import {FileInterceptor} from "@nestjs/platform-express";
 import { UploadService } from './upload.service';
+import { AuthGuard } from '@nestjs/passport';
 
 
 
 @Controller('uploads')
+@UseGuards(AuthGuard('jwt'))
 export class UploadController {
 
     constructor(private readonly uploadService: UploadService) {}

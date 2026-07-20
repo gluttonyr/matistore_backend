@@ -1,11 +1,13 @@
-import { Body, Controller, Delete, Get, Param, Post, Put, UseInterceptors, UploadedFile, BadRequestException } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Put, UseInterceptors, UploadedFile, BadRequestException, UseGuards } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { EvenementService } from './evenement.service';
 import { ApiResponse } from '../common/api-response.interface';
 import { UploadService } from '../uploads/upload.service';
 import { EvenementMapper } from './mappers/evenement.mapper';
+import { AuthGuard } from '@nestjs/passport';
 
 @Controller('events')
+@UseGuards(AuthGuard('jwt'))
 export class EvenementController {
   constructor(
     private readonly evenementService: EvenementService,
