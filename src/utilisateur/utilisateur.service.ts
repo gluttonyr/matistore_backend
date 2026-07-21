@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, OnModuleInit } from '@nestjs/common';
 import * as bcrypt from 'bcryptjs';
 import { User } from './entities/user.entity';
 import { CreateUserDto } from './dto/create-user.dto';
@@ -7,14 +7,54 @@ import { UserRepository } from './user.repository';
 import { UserMapper } from './mappers/user.mapper';
 import { DiscussionService } from 'src/discussion/discussion.service';
 import { Discussion } from 'src/discussion/entities/discussion.entity';
+import { UserRole } from './enums/user-role.enum';
 
 @Injectable()
-export class UtilisateurService {
+export class UtilisateurService implements OnModuleInit {
   constructor(
     private readonly userRepository: UserRepository,
     private readonly userMapper: UserMapper,
     private readonly discussionService: DiscussionService
   ) {}
+
+  async onModuleInit() {
+  await this.ensureAdminExists();
+}
+
+  private async ensureAdminExists() {
+  const admin = await this.userRepository.findOne({
+    where: {
+      role: UserRole.ADMIN,
+    },
+  });
+
+  if (admin) {
+    console.log('✅ Compte admin déjà existant');
+    return;
+  }
+
+  const password = 'Admin@123456';
+
+  const adminUser = this.userRepository.create({
+    nom: 'Admin',
+    prenom: 'System',
+    username: 'admin',
+    email: 'admin@matistore.com',
+    password: await bcrypt.hash(password, 10),
+    role: UserRole.ADMIN,
+    active: true,
+  });
+
+  await this.userRepository.save(adminUser);
+
+  console.log(`
+  ====================================
+  👑 Compte administrateur créé
+  Email : admin@matistore.com
+  Mot de passe : ${password}
+  ====================================
+  `);
+}
 
   
 

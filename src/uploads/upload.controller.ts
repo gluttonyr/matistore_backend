@@ -20,12 +20,13 @@ import { AuthGuard } from '@nestjs/passport';
 
 
 @Controller('uploads')
-@UseGuards(AuthGuard('jwt'))
+
 export class UploadController {
 
     constructor(private readonly uploadService: UploadService) {}
 
 
+    @UseGuards(AuthGuard('jwt'))
       @Post()
     @UseInterceptors(FileInterceptor('file'))
     async save(
@@ -34,7 +35,7 @@ export class UploadController {
         @Body('folder') folder: string
     ) {
         try {
-            console.log("je suis call",file)
+            
 
 
            
@@ -79,6 +80,7 @@ export class UploadController {
     }
 
 
+    @UseGuards(AuthGuard('jwt'))
     @Post()
     @UseInterceptors(FileInterceptor('file'))
     upload(
