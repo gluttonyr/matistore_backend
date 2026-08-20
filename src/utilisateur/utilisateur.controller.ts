@@ -22,6 +22,17 @@ async getProfile(@Req() req: any): Promise<ApiResponse> {
   return { data: user, message: 'Profil utilisateur', status: 200 };
 }
 
+
+ @Post('update_password')
+async updatePassword(@Req() req: any,@Body() body:any): Promise<ApiResponse> {
+
+  const userId = req.user.userId;
+
+  const requester = await this.utilisateurService.updatePawword(req.user.userId,body.id,body.password);
+   
+    return { data: "Le mot de passe du compte utilisateur du nom de "+requester.username+" et de l'email "+requester.email+" a bien été modifier en "+body.pawword, message: 'Mise a jour du mot de passe reussi', status: 200 };
+}
+
   @Post('push-token')
   async updatePushToken(@Req() req: any, @Body('token') token: string): Promise<ApiResponse> {
     const userId = req.user.userId;

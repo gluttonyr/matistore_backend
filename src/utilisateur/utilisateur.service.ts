@@ -62,7 +62,7 @@ export class UtilisateurService implements OnModuleInit {
     
     const existing = await this.userRepository.findOne({ where: { email: payload.email } });
     if (existing) {
-      throw new BadRequestException('Email déjà utilisé');
+      throw new BadRequestException('Email déjà utilisé par un autre utilisateur');
     }
     
     const entity = await this.userMapper.toEntity(payload);
@@ -115,6 +115,30 @@ export class UtilisateurService implements OnModuleInit {
     return this.userRepository.findOne({ where: {  id } });
   }
 
+  async updatePawword(adminId:number,userId:number,password:string){
+    const admin=await this.findUserById(adminId);
+    if (!admin) {
+      throw new BadRequestException('Compte Administrateur introuvable');
+    }
+    if (admin.role!=UserRole.ADMIN) {
+      throw new BadRequestException('Acces refusez, vous ne pouvez pas effectuer cette modification');
+    }
+    const user = await this.findUserById(adminId);
+    if (!user) {
+      throw new BadRequestException('Utilisateur introuvable');
+    }
+    if(!user){
+       throw new BadRequestException('Mot de passe invalide');
+    }
+
+    
+    user.password = await bcrypt.hash(password, 10);
+    
+    
+    return this.userRepository.save(user);
+
+  }
+
   async updatePushToken(id: number, expoPushToken: string) {
     const user = await this.findUserById(id);
     if (!user) {
@@ -134,9 +158,9 @@ export class UtilisateurService implements OnModuleInit {
     if (!user) {
       throw new BadRequestException('Utilisateur introuvable');
     }
-    if (payload.password) {
-      payload.password = await bcrypt.hash(payload.password, 10);
-    }
+    // if (payload.password) {
+    //   payload.password = await bcrypt.hash(payload.password, 10);
+    // }
     Object.assign(user, payload);
     return this.userRepository.save(user);
   }

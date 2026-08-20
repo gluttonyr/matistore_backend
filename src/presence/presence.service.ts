@@ -1,18 +1,9 @@
 import { Injectable } from '@nestjs/common';
 
-/**
- * Suivi de présence en mémoire : un utilisateur est "en ligne" tant qu'au
- * moins une de ses connexions socket est active (plusieurs onglets/appareils
- * possibles par utilisateur, d'où le Set de socketId).
- *
- * ⚠️ En mémoire du processus : fonctionne parfaitement tant qu'un seul
- * serveur backend tourne (cas actuel). Si un jour l'app est déployée sur
- * plusieurs instances derrière un load balancer, il faudra migrer ce
- * registre vers un store partagé (ex: Redis).
- */
 @Injectable()
 export class PresenceService {
   private onlineUsers = new Map<number, Set<string>>();
+  private lastSeen = new Map<number, Date>();
 
   addConnection(userId: number, socketId: string): void {
     if (!this.onlineUsers.has(userId)) {
@@ -21,13 +12,21 @@ export class PresenceService {
     this.onlineUsers.get(userId)!.add(socketId);
   }
 
-  removeConnection(userId: number, socketId: string): void {
+  /**
+   * Retourne true si c'était la dernière connexion active de cet utilisateur
+   * (donc il vient de passer hors ligne), false sinon (il a encore d'autres
+   * sockets ouverts, ex: un autre onglet).
+   */
+  removeConnection(userId: number, socketId: string): boolean {
     const sockets = this.onlineUsers.get(userId);
-    if (!sockets) return;
+    if (!sockets) return false;
     sockets.delete(socketId);
     if (sockets.size === 0) {
       this.onlineUsers.delete(userId);
+      this.lastSeen.set(userId, new Date());
+      return true;
     }
+    return false;
   }
 
   getOnlineCount(): number {
@@ -36,5 +35,13 @@ export class PresenceService {
 
   isOnline(userId: number): boolean {
     return this.onlineUsers.has(userId);
+  }
+
+  getOnlineUserIds(): number[] {
+    return Array.from(this.onlineUsers.keys());
+  }
+
+  getLastSeen(userId: number): Date | undefined {
+    return this.lastSeen.get(userId);
   }
 }

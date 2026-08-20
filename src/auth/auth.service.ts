@@ -29,10 +29,10 @@ export class AuthService {
     const user = await this.utilisateurService.findByEmail(body.email);
 
     if (!user) {
-      throw new UnauthorizedException('Email ou mot de passe invalide');
+      throw new UnauthorizedException('Aucun utilisateur n\'est inscrit avec cet email');
     }
     if (!user.password) {
-      throw new UnauthorizedException('Invalid credentials');
+      throw new UnauthorizedException('Mot de passe invalide');
     }
 
 
@@ -40,7 +40,7 @@ export class AuthService {
     const isValid = await bcrypt.compare(body.password, user.password);
 
     if (!isValid) {
-      throw new UnauthorizedException('Email ou mot de passe invalide');
+      throw new UnauthorizedException('Mot de passe incorrecte');
     }
     const response = user ? this.utilisateurMapper.toResponse(user) : null;
 

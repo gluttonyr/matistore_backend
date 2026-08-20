@@ -8,11 +8,12 @@ import { DiscussionParticipantModule } from 'src/discussion-participant/discussi
 import { DiscussionParticipantService } from 'src/discussion-participant/discussion-participant.service';
 import { UtilisateurModule } from 'src/utilisateur/utilisateur.module';
 import { DiscussionMapper } from './mappers/discussion.mapper';
+import { DiscussionWatchersService } from './discussion.watcher.service';
 
 @Module({
   imports: [TypeOrmModule.forFeature([Discussion]),DiscussionParticipantModule,forwardRef(() => UtilisateurModule),],
-  providers: [DiscussionService, DiscussionRepository,DiscussionMapper],
+  providers: [DiscussionService, DiscussionRepository,DiscussionMapper,DiscussionWatchersService],
   controllers: [DiscussionController],
-  exports: [DiscussionService],
+  exports: [DiscussionService,DiscussionWatchersService],
 })
 export class DiscussionModule {}

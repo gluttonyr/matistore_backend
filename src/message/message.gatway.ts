@@ -18,6 +18,7 @@ import { MessageMapper } from './mappers/message.mapper';
 import { PresenceService } from 'src/presence/presence.service';
 import { UtilisateurService } from 'src/utilisateur/utilisateur.service';
 import { UserRole } from 'src/utilisateur/enums/user-role.enum';
+import { DiscussionWatchersService } from 'src/discussion/discussion.watcher.service';
 
 @WebSocketGateway({
   cors: {
@@ -29,64 +30,156 @@ export class MessageGateway implements OnGatewayConnection, OnGatewayDisconnect 
   server!: Server;
 
   constructor(
-    private readonly messageService: MessageService,
-    private readonly messageMapper: MessageMapper,
-    private readonly jwtService: JwtService,
-    private readonly presenceService: PresenceService,
-    private readonly discussionService: DiscussionService,
-    private readonly utilisateurService: UtilisateurService,
-  ) { }
+  private readonly messageService: MessageService,
+  private readonly messageMapper: MessageMapper,
+  private readonly jwtService: JwtService,
+  private readonly presenceService: PresenceService,
+  private readonly discussionService: DiscussionService,
+  private readonly utilisateurService: UtilisateurService,
+  private readonly discussionWatchers: DiscussionWatchersService, // ← ajouté
+) {}
 
   // ==========================
   // PRÉSENCE (utilisateurs en ligne)
   // ==========================
-  handleConnection(client: Socket) {
-    const token = client.handshake.auth?.token as string | undefined;
-    if (!token) {
-      client.disconnect();
-      return;
+    // ==========================
+  // PRÉSENCE (utilisateurs en ligne)
+  // ==========================
+  
+
+// ==========================
+// PRÉSENCE (utilisateurs en ligne)
+// ==========================
+async handleConnection(client: Socket) {
+  const token = client.handshake.auth?.token as string | undefined;
+  if (!token) {
+    client.disconnect();
+    return;
+  }
+  try {
+    const payload = this.jwtService.verify(token);
+    const userId = payload.sub;
+    client.data.userId = userId;
+
+    const user = await this.utilisateurService.findUserById(userId);
+    client.data.role = user?.role; // ← nécessaire pour distinguer admin/user
+
+    this.presenceService.addConnection(userId, client.id);
+    this.server.emit('userStatusChanged', { userId, online: true });
+    this.server.emit('onlineCountChanged', { count: this.presenceService.getOnlineCount() });
+  } catch {
+    client.disconnect();
+  }
+}
+
+handleDisconnect(client: Socket) {
+  const userId = client.data?.userId;
+  if (userId) {
+    const wentOffline = this.presenceService.removeConnection(userId, client.id);
+    if (wentOffline) {
+      this.server.emit('userStatusChanged', {
+        userId,
+        online: false,
+        lastSeen: this.presenceService.getLastSeen(userId),
+      });
     }
-    try {
-      const payload = this.jwtService.verify(token);
-      const userId = payload.sub;
-      client.data.userId = userId;
-      this.presenceService.addConnection(userId, client.id);
-    } catch {
-      client.disconnect();
-    }
+    this.server.emit('onlineCountChanged', { count: this.presenceService.getOnlineCount() });
   }
 
-  handleDisconnect(client: Socket) {
-    const userId = client.data?.userId;
-    if (userId) {
-      this.presenceService.removeConnection(userId, client.id);
+  // Nettoyage : si ce socket admin regardait des discussions sans avoir émis
+  // "leaveDiscussion" (fermeture brutale de l'app par ex.)
+  const nowEmpty = this.discussionWatchers.removeSocketEverywhere(client.id);
+  nowEmpty.forEach((discussionId) => {
+    this.server.to(discussionId).emit('discussionPresenceChanged', {
+      discussionId,
+      adminPresent: false,
+    });
+  });
+}
+
+@SubscribeMessage('getOnlineUsers')
+handleGetOnlineUsers() {
+  return { onlineUserIds: this.presenceService.getOnlineUserIds() };
+}
+
+// ==========================
+// JOIN / LEAVE ROOM
+// ==========================
+@SubscribeMessage('joinDiscussion')
+async handleJoin(
+  @MessageBody() discussionId: string,
+  @ConnectedSocket() client: Socket,
+) {
+  client.join(discussionId);
+
+  const readerId = client.data?.userId;
+  if (!readerId) return;
+
+  const updated = await this.messageService.markDiscussionAsRead(discussionId, readerId);
+  if (updated.length > 0) {
+    const responseMessages = updated.map((message) => this.messageMapper.toResponse(message));
+    this.server.to(discussionId).emit('messagesRead', responseMessages);
+  }
+
+  // Présence : un admin qui rejoint = il regarde la discussion en ce moment
+  if (client.data?.role === UserRole.ADMIN) {
+    this.discussionWatchers.addWatcher(discussionId, client.id);
+    this.server.to(discussionId).emit('discussionPresenceChanged', {
+      discussionId,
+      adminPresent: true,
+    });
+  }
+}
+
+@SubscribeMessage('leaveDiscussion')
+handleLeave(
+  @MessageBody() discussionId: string,
+  @ConnectedSocket() client: Socket,
+) {
+  client.leave(discussionId);
+
+  if (client.data?.role === UserRole.ADMIN) {
+    const wasLast = this.discussionWatchers.removeWatcher(discussionId, client.id);
+    if (wasLast) {
+      this.server.to(discussionId).emit('discussionPresenceChanged', {
+        discussionId,
+        adminPresent: false,
+      });
     }
   }
+}
+
+// État initial pour le user à l'ouverture de l'écran
+@SubscribeMessage('getDiscussionPresence')
+handleGetDiscussionPresence(@MessageBody() discussionId: string) {
+  return {
+    discussionId,
+    adminPresent: this.discussionWatchers.hasAdminWatching(discussionId),
+  };
+}
+
+// État initial + source pour l'admin (statut du client de la discussion)
+@SubscribeMessage('getDiscussionClientStatus')
+async handleGetDiscussionClientStatus(@MessageBody() discussionId: string) {
+  try {
+    const clientUser = await this.discussionService.getUserByDiscussionId(discussionId);
+    const userId = clientUser.id; // id numérique, même format que client.data.userId
+    return {
+      userId,
+      online: this.presenceService.isOnline(userId),
+      lastSeen: this.presenceService.getLastSeen(userId),
+    };
+  } catch (error: any) {
+    return { success: false, error: error.message ?? 'Erreur lors de la récupération du statut' };
+  }
+}
 
   // ==========================
-  // JOIN ROOM
+  // DEMANDE D'ÉTAT INITIAL (au montage de l'écran de chat)
   // ==========================
-  @SubscribeMessage('joinDiscussion')
-  async handleJoin(
-    @MessageBody() discussionId: string,
-    @ConnectedSocket() client: Socket,
-  ) {
-    console.log("connection etablished")
-    client.join(discussionId);
 
-    // Rejoindre la room = être en ligne et avoir la discussion ouverte : on en
-    // profite pour marquer comme lus les messages de l'autre côté et prévenir
-    // l'expéditeur (double coche) via l'événement "messagesRead".
-    const readerId = client.data?.userId;
-    if (!readerId) return;
 
-    const updated = await this.messageService.markDiscussionAsRead(discussionId, readerId);
-    if (updated.length > 0) {
-      const responseMessages = updated.map((message) => this.messageMapper.toResponse(message));
-      this.server.to(discussionId).emit('messagesRead', responseMessages);
-    }
-  }
-
+ 
   // ==========================
   // CREATE MESSAGE
   // ==========================
