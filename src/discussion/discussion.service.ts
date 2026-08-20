@@ -39,6 +39,7 @@ getDiscussionByUser(userId: string) {
   return this.discussionRepository
     .createQueryBuilder('discussion')
     .innerJoinAndSelect('discussion.participants', 'participants')
+    
     .innerJoinAndSelect('participants.user', 'user')
     .where('user.trackingId = :trackingId', { trackingId: userId })
     .getMany();
@@ -130,6 +131,7 @@ getDiscussionByUser(userId: string) {
       .leftJoinAndSelect('discussion.participants', 'participant')
       .leftJoinAndSelect('participant.user', 'user')
       .leftJoinAndSelect('discussion.messages', 'messages')
+      .leftJoinAndSelect('messages.sender', 'sender')
       .orderBy('discussion.lastMessageAt', 'DESC')
       .where('discussion.type != :type', { type: DiscussionType.FORUM })
       .getMany();

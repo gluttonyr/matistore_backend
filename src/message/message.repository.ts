@@ -18,7 +18,10 @@ export class MessageRepository extends Repository<Message> {
       .orderBy('message.createdAt', 'ASC');
 
     if (since) {
-      query.andWhere('message.createdAt >= :since', { since });
+      query.andWhere(
+        '(message.createdAt >= :since OR message.lu = false)',
+        { since }
+      );
     }
 
     return query.getMany();
