@@ -22,6 +22,7 @@ FROM node:24-alpine AS runtime
 WORKDIR /app
 COPY --from=prod-deps /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
+COPY assets ./assets
 COPY package.json ./
 
 EXPOSE 3000
