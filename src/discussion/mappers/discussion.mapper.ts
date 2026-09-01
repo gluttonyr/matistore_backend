@@ -17,7 +17,7 @@ export class DiscussionMapper extends BaseMapper<Discussion, DiscussionResponseD
   ) {
     super();
   }
-  
+
   async toEntity(dto: CreateDiscussionDto | UpdateDiscussionDto): Promise<Partial<Discussion>> {
     const discussion = plainToInstance(Discussion, dto, { excludeExtraneousValues: false });
     discussion.trackingId = uuidv4();
@@ -25,21 +25,37 @@ export class DiscussionMapper extends BaseMapper<Discussion, DiscussionResponseD
   }
 
   // discussion.mapper.ts
-toResponse(entity: Discussion): DiscussionResponseDto {
-  const response = plainToInstance(DiscussionResponseDto, entity, {
-    excludeExtraneousValues: true,
-  });
-  response.lastMessageContent = entity.lastMessageContent;
-  response.username = entity.participants?.find(p => !p.isAdmin)?.user?.username ?? "";
+  toResponse(entity: Discussion): DiscussionResponseDto {
+    const response = plainToInstance(DiscussionResponseDto, entity, {
+      excludeExtraneousValues: true,
+    });
+    response.lastMessageContent = entity.lastMessageContent;
 
-  // messages non lus envoyés par un non-admin, dans les messages déjà chargés (findAll fait leftJoinAndSelect('discussion.messages', ...))
-  response.unreadCount = entity.messages?.filter(
-    (m) => !m.lu && m.sender?.role !== UserRole.ADMIN
-  ).length ?? 0;
+    const user = entity.participants?.find(p => !p.isAdmin)?.user;
 
-  delete (response as any).id;
-  return response;
-}
+    if (user) {
+      const nom = user.nom?.trim().toUpperCase() ?? "";
+
+      const prenom = user.prenom
+        ?.trim()
+        .toLowerCase()
+        .split(/\s+/)
+        .map(p => p.charAt(0).toUpperCase() + p.slice(1))
+        .join(" ") ?? "";
+
+      response.username = `${nom} ${prenom}`.trim();
+    } else {
+      response.username = "";
+    }
+
+    // messages non lus envoyés par un non-admin, dans les messages déjà chargés (findAll fait leftJoinAndSelect('discussion.messages', ...))
+    response.unreadCount = entity.messages?.filter(
+      (m) => !m.lu && m.sender?.role !== UserRole.ADMIN
+    ).length ?? 0;
+
+    delete (response as any).id;
+    return response;
+  }
 
   async toResponseList(entities: Discussion[]): Promise<DiscussionResponseDto[]> {
     return Promise.all(entities.map((entity) => Promise.resolve(this.toResponse(entity))));
