@@ -15,63 +15,74 @@ export class UtilisateurService implements OnModuleInit {
     private readonly userRepository: UserRepository,
     private readonly userMapper: UserMapper,
     private readonly discussionService: DiscussionService
-  ) {}
+  ) { }
 
   async onModuleInit() {
-  await this.ensureAdminExists();
-}
-
-  private async ensureAdminExists() {
-  const admin = await this.userRepository.findOne({
-    where: {
-      role: UserRole.ADMIN,
-    },
-  });
-
-  if (admin) {
-    console.log('✅ Compte admin déjà existant');
-    return;
+    await this.ensureAdminExists();
   }
 
-  const password = 'Admin@123456';
+  private async ensureAdminExists() {
+    const admin = await this.userRepository.findOne({
+      where: {
+        role: UserRole.ADMIN,
+      },
+    });
 
-  const adminUser = this.userRepository.create({
-    nom: 'Admin',
-    prenom: 'System',
-    username: 'admin',
-    email: 'admin@matistore.com',
-    password: await bcrypt.hash(password, 10),
-    role: UserRole.ADMIN,
-    active: true,
-  });
+    if (admin) {
+      console.log('✅ Compte admin déjà existant');
+      return;
+    }
 
-  await this.userRepository.save(adminUser);
+    const password = 'Admin@123456';
 
-  console.log(`
+    const adminUser = this.userRepository.create({
+      nom: 'Admin',
+      prenom: 'System',
+      username: 'admin',
+      email: 'admin@matistore.com',
+      password: await bcrypt.hash(password, 10),
+      role: UserRole.ADMIN,
+      active: true,
+    });
+
+    await this.userRepository.save(adminUser);
+
+    console.log(`
   ====================================
   👑 Compte administrateur créé
   Email : admin@matistore.com
   Mot de passe : ${password}
   ====================================
   `);
-}
+  }
 
-  
+
 
   async create(payload: CreateUserDto) {
-    
+
     const existing = await this.userRepository.findOne({ where: { email: payload.email } });
     if (existing) {
       throw new BadRequestException('Email déjà utilisé par un autre utilisateur');
     }
-    
+
     const entity = await this.userMapper.toEntity(payload);
-    if(!entity.username){
-      entity.username = payload.nom.toLowerCase() + '_' + payload.prenom.toLowerCase();
+    if (!entity.username) {
+      const nom = payload.nom
+        .trim()
+        .toUpperCase();
+
+      const prenom = payload.prenom
+        .trim()
+        .toLowerCase()
+        .split(/\s+/)
+        .map((p) => p.charAt(0).toUpperCase() + p.slice(1))
+        .join(' ');
+
+      entity.username = `${nom} ${prenom}`;
     }
 
-    
-    
+
+
 
     const user = this.userRepository.create({
       ...entity,
@@ -112,29 +123,29 @@ export class UtilisateurService implements OnModuleInit {
   }
 
   findUserById(id: number) {
-    return this.userRepository.findOne({ where: {  id } });
+    return this.userRepository.findOne({ where: { id } });
   }
 
-  async updatePawword(adminId:number,userId:number,password:string){
-    const admin=await this.findUserById(adminId);
+  async updatePawword(adminId: number, userId: number, password: string) {
+    const admin = await this.findUserById(adminId);
     if (!admin) {
       throw new BadRequestException('Compte Administrateur introuvable');
     }
-    if (admin.role!=UserRole.ADMIN) {
+    if (admin.role != UserRole.ADMIN) {
       throw new BadRequestException('Acces refusez, vous ne pouvez pas effectuer cette modification');
     }
     const user = await this.findUserById(adminId);
     if (!user) {
       throw new BadRequestException('Utilisateur introuvable');
     }
-    if(!user){
-       throw new BadRequestException('Mot de passe invalide');
+    if (!user) {
+      throw new BadRequestException('Mot de passe invalide');
     }
 
-    
+
     user.password = await bcrypt.hash(password, 10);
-    
-    
+
+
     return this.userRepository.save(user);
 
   }
