@@ -162,4 +162,15 @@ getDiscussionByUser(userId: string) {
     }
     return this.discussionRepository.remove(discussion);
   }
+
+  async getParticipantUserIds(discussionId: string): Promise<string[]> {
+  const discussion = await this.discussionRepository
+    .createQueryBuilder('discussion')
+    .innerJoinAndSelect('discussion.participants', 'participants')
+    .innerJoinAndSelect('participants.user', 'user')
+    .where('discussion.trackingId = :discussionId', { discussionId })
+    .getOne();
+
+  return discussion?.participants.map((p) => p.user.trackingId) ?? [];
+}
 }

@@ -12,6 +12,8 @@ import { UtilisateurModule } from 'src/utilisateur/utilisateur.module';
 import { ParametreModule } from 'src/parametre/parametre.module';
 import { PresenceModule } from 'src/presence/presence.module';
 import { MessageMapper } from './mappers/message.mapper';
+import { PushDeviceModule } from 'src/push-device/push-device.module';
+import { NotificationsModule } from 'src/notifications/notifications.module';
 
 @Module({
   imports: [
@@ -20,6 +22,8 @@ import { MessageMapper } from './mappers/message.mapper';
     UtilisateurModule,
     ParametreModule,
     PresenceModule,
+    PushDeviceModule,
+    NotificationsModule,
     // Nécessaire pour que MessageGateway puisse vérifier le token JWT des
     // connexions socket (suivi de présence "en ligne").
     JwtModule.registerAsync({

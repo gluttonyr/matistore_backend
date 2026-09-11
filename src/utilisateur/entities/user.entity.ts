@@ -1,6 +1,7 @@
-import { Column, Entity } from 'typeorm';
+import { Column, Entity, OneToMany } from 'typeorm';
 import { BaseEntity } from '../../common/base.entity';
 import { UserRole } from '../enums/user-role.enum';
+import { PushDevice } from '../../push-device/entities/push-device.entity';
 
 @Entity('users')
 export class User extends BaseEntity {
@@ -36,4 +37,7 @@ export class User extends BaseEntity {
 
   @Column({ nullable: true })
   expoPushToken?: string;
+
+  @OneToMany(() => PushDevice, (pushDevice) => pushDevice.user)
+  pushDevices!: PushDevice[];
 }

@@ -31,6 +31,8 @@ import { Parametre } from './parametre/entities/parametre.entity';
 import { Operateur } from './operateur/entities/operateur.entity';
 import { Categorie } from './categorie/entities/categorie.entity';
 import { GoogleOauthModule } from './google_oauth/google_oauth.module';
+import { PushDeviceModule } from './push-device/push-device.module';
+import { PushDevice } from './push-device/entities/push-device.entity';
 
 @Module({
   imports: [
@@ -50,6 +52,7 @@ import { GoogleOauthModule } from './google_oauth/google_oauth.module';
 
     entities: [
       User,
+      PushDevice,
       Discussion,
       DiscussionParticipant,
       Message,
@@ -80,6 +83,7 @@ import { GoogleOauthModule } from './google_oauth/google_oauth.module';
     CategorieModule,
     UploadModule,
     GoogleOauthModule,
+    PushDeviceModule,
     PresenceModule,
     StatsModule,
     NotificationsModule,

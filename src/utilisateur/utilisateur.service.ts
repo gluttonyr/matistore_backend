@@ -100,6 +100,18 @@ export class UtilisateurService implements OnModuleInit {
 
   }
 
+  async getAdminPushTokens(): Promise<string[]> {
+  // Adapte selon comment tu récupères déjà les users par rôle ailleurs
+  const admins = await this.userRepository.find({
+    where: { role: UserRole.ADMIN },
+    relations: { pushDevices: true },
+  });
+  return admins
+    .flatMap((u) => u.pushDevices ?? [])
+    .filter((d) => d.active)
+    .map((d) => d.token);
+}
+
   async findAll() {
     return this.userRepository.find();
   }
