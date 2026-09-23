@@ -31,38 +31,38 @@ export class PushDeviceService {
   }
 
   async registerForUser(userId: number | string, payload: Partial<PushDevice> | Omit<CreatePushDeviceDto, 'userId'>) {
-    if (!payload.token) {
-      throw new BadRequestException('Le token push est requis');
-    }
-
-    if (!payload.platform || !['android', 'ios'].includes(payload.platform as string)) {
-      throw new BadRequestException('Plateforme invalide. Valeurs acceptées: android, ios');
-    }
-
-    const normalizedUserId = String(userId);
-    const device = await this.pushDeviceRepository.findByToken(payload.token);
-    if (device) {
-      if (device.userId !== normalizedUserId) {
-        device.active = false;
-        await this.pushDeviceRepository.save(device);
-      } else {
-        device.platform = payload.platform as 'android' | 'ios';
-        device.deviceId = payload.deviceId ?? device.deviceId;
-        device.active = payload.active ?? true;
-        return this.pushDeviceRepository.save(device);
-      }
-    }
-
-    const newDevice = this.pushDeviceRepository.create({
-      userId: normalizedUserId,
-      token: payload.token,
-      platform: payload.platform as 'android' | 'ios',
-      deviceId: payload.deviceId,
-      active: payload.active ?? true,
-    });
-
-    return this.pushDeviceRepository.save(newDevice);
+  if (!payload.token) {
+    throw new BadRequestException('Le token push est requis');
   }
+
+  if (!payload.platform || !['android', 'ios'].includes(payload.platform as string)) {
+    throw new BadRequestException('Plateforme invalide. Valeurs acceptées: android, ios');
+  }
+
+  const normalizedUserId = String(userId);
+  const device = await this.pushDeviceRepository.findByToken(payload.token);
+
+  if (device) {
+    // Le token existe déjà en base (même appareil déjà enregistré, peu importe
+    // par quel utilisateur) : on met à jour cet enregistrement au lieu d'en
+    // créer un nouveau, pour ne pas violer la contrainte unique sur `token`.
+    device.userId = normalizedUserId;
+    device.platform = payload.platform as 'android' | 'ios';
+    device.deviceId = payload.deviceId ?? device.deviceId;
+    device.active = payload.active ?? true;
+    return this.pushDeviceRepository.save(device);
+  }
+
+  const newDevice = this.pushDeviceRepository.create({
+    userId: normalizedUserId,
+    token: payload.token,
+    platform: payload.platform as 'android' | 'ios',
+    deviceId: payload.deviceId,
+    active: payload.active ?? true,
+  });
+
+  return this.pushDeviceRepository.save(newDevice);
+}
 
   findAll() {
     return this.pushDeviceRepository.find({ relations: { user: true } as any });

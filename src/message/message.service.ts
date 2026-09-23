@@ -118,17 +118,26 @@ export class MessageService {
     );
   }
 
-  async findByDiscussion(discussionId: string) {
-    const refreshDays =
-      (await this.parametreService.getValue(PARAMETRE_CODES.DISCUSSION_REFRESH)) ??
-      DEFAULT_DISCUSSION_REFRESH_DAYS;
+// dans MessageService, remplacer findByDiscussion existant par :
 
-    const since = new Date();
-    since.setHours(0, 0, 0, 0);
-    since.setDate(since.getDate() - (refreshDays - 1));
+async findByDiscussion(discussionId: string, before?: string) {
+  const refreshDays =
+    (await this.parametreService.getValue(PARAMETRE_CODES.DISCUSSION_REFRESH)) ??
+    DEFAULT_DISCUSSION_REFRESH_DAYS;
 
-    return this.messageRepository.findByDiscussion(discussionId, since);
+  if (before) {
+    // Pagination : on charge la tranche de `refreshDays` jours précédant `before`.
+    const until = new Date(before);
+    const since = new Date(until);
+    since.setDate(since.getDate() - refreshDays);
+    return this.messageRepository.findByDiscussion(discussionId, since, until);
   }
+
+  const since = new Date();
+  since.setHours(0, 0, 0, 0);
+  since.setDate(since.getDate() - (refreshDays - 1));
+  return this.messageRepository.findByDiscussion(discussionId, since);
+}
 
   findById(id: string) {
     return this.messageRepository.findById(id);

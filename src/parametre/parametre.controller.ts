@@ -3,8 +3,8 @@ import { ParametreService } from './parametre.service';
 import { ApiResponse } from '../common/api-response.interface';
 import { AuthGuard } from '@nestjs/passport';
 
-@Controller('settings')
-@UseGuards(AuthGuard('jwt'))
+@Controller('parametres')
+// @UseGuards(AuthGuard('jwt'))
 export class ParametreController {
   constructor(private readonly parametreService: ParametreService) {}
 

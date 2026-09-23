@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Post, Put, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Put, Query, Req, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { MessageService } from './message.service';
 import { ApiResponse } from '../common/api-response.interface';
@@ -10,13 +10,18 @@ import { MessageMapper } from './mappers/message.mapper';
 export class MessageController {
   constructor(private readonly messageService: MessageService,private readonly messageMapper: MessageMapper) {}
 
-  @Get('discussion/:discussionId')
-  async findByDiscussion(@Param('discussionId') discussionId: string): Promise<ApiResponse> {
-    const messages = await this.messageService.findByDiscussion(discussionId);
-    const responseMessages = await Promise.all(messages.map(message => this.messageMapper.toResponse(message)));
-   
-    return { data: responseMessages, message: 'Messages trouvés', status: 200 };
-  }
+
+
+@Get('discussion/:discussionId')
+async findByDiscussion(
+  @Param('discussionId') discussionId: string,
+  @Query('before') before?: string,
+): Promise<ApiResponse> {
+  const messages = await this.messageService.findByDiscussion(discussionId, before);
+  const responseMessages = await Promise.all(messages.map(message => this.messageMapper.toResponse(message)));
+  return { data: responseMessages, message: 'Messages trouvés', status: 200 };
+}
+
 
   @Get(':id')
   async findOne(@Param('id') id: string): Promise<ApiResponse> {

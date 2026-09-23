@@ -1,3 +1,4 @@
+// message.repository.ts
 import { Injectable } from '@nestjs/common';
 import { DataSource, Repository } from 'typeorm';
 import { InjectDataSource } from '@nestjs/typeorm';
@@ -9,7 +10,13 @@ export class MessageRepository extends Repository<Message> {
     super(Message, dataSource.createEntityManager());
   }
 
-  findByDiscussion(discussionId: string, since?: Date) {
+  /**
+   * - Sans `until` : chargement initial → fenêtre glissante de `since` à maintenant,
+   *   plus tous les messages non lus (même plus anciens que `since`), comme avant.
+   * - Avec `until` : chargement d'une tranche historique → strictement entre
+   *   `since` et `until` (utilisé par le "charger plus" en scrollant vers le haut).
+   */
+  findByDiscussion(discussionId: string, since?: Date, until?: Date) {
     const query = this.createQueryBuilder('message')
       .leftJoinAndSelect('message.discussion', 'discussion')
       .leftJoinAndSelect('message.sender', 'sender')
@@ -17,11 +24,13 @@ export class MessageRepository extends Repository<Message> {
       .where('discussion.trackingId = :discussionId', { discussionId })
       .orderBy('message.createdAt', 'ASC');
 
-    if (since) {
-      query.andWhere(
-        '(message.createdAt >= :since OR message.lu = false)',
-        { since }
-      );
+    if (until) {
+      query.andWhere('message.createdAt < :until', { until });
+      if (since) {
+        query.andWhere('message.createdAt >= :since', { since });
+      }
+    } else if (since) {
+      query.andWhere('(message.createdAt >= :since OR message.lu = false)', { since });
     }
 
     return query.getMany();
@@ -34,7 +43,6 @@ export class MessageRepository extends Repository<Message> {
     });
   }
 
-  /** Message(s) actuellement épinglé(s) dans une discussion (normalement 0 ou 1). */
   findPinned(discussionId: string) {
     return this.createQueryBuilder('message')
       .leftJoinAndSelect('message.discussion', 'discussion')
@@ -44,7 +52,6 @@ export class MessageRepository extends Repository<Message> {
       .getMany();
   }
 
-  /** Compte total (sans limite de fenêtre de jours, contrairement à findByDiscussion). */
   countByDiscussion(discussionId: string) {
     return this.createQueryBuilder('message')
       .leftJoin('message.discussion', 'discussion')
@@ -52,7 +59,6 @@ export class MessageRepository extends Repository<Message> {
       .getCount();
   }
 
-  /** Messages non lus d'une discussion, envoyés par quelqu'un d'autre que le lecteur. */
   findUnreadForReader(discussionId: string, readerUserId: number) {
     return this.createQueryBuilder('message')
       .leftJoinAndSelect('message.discussion', 'discussion')
