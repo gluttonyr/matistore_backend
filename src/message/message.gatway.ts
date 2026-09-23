@@ -19,6 +19,7 @@ import { PresenceService } from 'src/presence/presence.service';
 import { UtilisateurService } from 'src/utilisateur/utilisateur.service';
 import { UserRole } from 'src/utilisateur/enums/user-role.enum';
 import { DiscussionWatchersService } from 'src/discussion/discussion.watcher.service';
+import { Logger } from '@nestjs/common';
 
 @WebSocketGateway({
   cors: {
@@ -28,6 +29,8 @@ import { DiscussionWatchersService } from 'src/discussion/discussion.watcher.ser
 export class MessageGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
   server!: Server;
+
+  private readonly logger = new Logger(MessageGateway.name);
 
   constructor(
   private readonly messageService: MessageService,
@@ -196,7 +199,14 @@ async handleGetDiscussionClientStatus(@MessageBody() discussionId: string) {
       discussionStatut?:DiscussionStatus;
     },
   ) {
-    console.log("message send fully with", payload)
+    this.logger.log(JSON.stringify({
+      event: 'message.send.received',
+      discussionId: payload.discussionId,
+      senderId: payload.senderId,
+      type: payload.type ?? MessageType.TEXT,
+      hasContent: Boolean(payload.contenu),
+      hasImage: Boolean(payload.image),
+    }));
     try {
       let parentMessage: any = null;
       if (payload.parentId) {
@@ -220,6 +230,13 @@ async handleGetDiscussionClientStatus(@MessageBody() discussionId: string) {
 
       },payload.discussionStatut);
 
+      this.logger.log(JSON.stringify({
+        event: 'message.send.saved',
+        messageId: message.trackingId,
+        discussionId: payload.discussionId,
+        senderId: message.sender?.id,
+      }));
+
       const responseMessage = this.messageMapper.toResponse(message);
 
       this.server
@@ -233,6 +250,15 @@ async handleGetDiscussionClientStatus(@MessageBody() discussionId: string) {
 
       return responseMessage;
     } catch (error: any) {
+      this.logger.error(
+        JSON.stringify({
+          event: 'message.send.failed',
+          discussionId: payload.discussionId,
+          senderId: payload.senderId,
+          error: error.message ?? 'Message send failed',
+        }),
+        error.stack,
+      );
       return { success: false, error: error.message ?? "Erreur lors de l'envoi du message" };
     }
   }

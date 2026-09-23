@@ -63,6 +63,15 @@ export class MessageService {
 
     const saved = await this.messageRepository.save(this.messageRepository.create(message));
 
+    this.logger.log(JSON.stringify({
+      event: 'message.saved',
+      messageId: saved.trackingId,
+      discussionId: discussion.trackingId,
+      senderId: sender.id,
+      senderRole: sender.role,
+      type: saved.type,
+    }));
+
     // Notifier sans bloquer/faire échouer l'envoi du message si le push rate.
     this.notifyNewMessage(saved).catch((error) =>
       this.logger.error('Échec de la notification du nouveau message', error),
@@ -90,6 +99,15 @@ export class MessageService {
     const isSenderAdmin = message.sender.role === UserRole.ADMIN;
     let tokens: string[];
 
+    this.logger.log(JSON.stringify({
+      event: 'push.prepare',
+      messageId: message.trackingId,
+      discussionId: message.discussion.trackingId,
+      senderId: message.sender.id,
+      senderRole: message.sender.role,
+      recipientGroup: isSenderAdmin ? 'discussion-participants' : 'admins',
+    }));
+
     if (isSenderAdmin) {
       // Admin écrit → notifier le(s) participant(s) client de la discussion
       const participantIds = await this.discussionService.getParticipantUserIds(
@@ -99,12 +117,31 @@ export class MessageService {
         participantIds.map((id) => this.pushDeviceService.findActiveByUser(id)),
       );
       tokens = devicesByUser.flat().map((d) => d.token);
+      this.logger.log(JSON.stringify({
+        event: 'push.recipients.resolved',
+        messageId: message.trackingId,
+        recipientUserIds: participantIds,
+        activeDeviceCounts: devicesByUser.map((devices) => devices.length),
+        tokenCount: tokens.length,
+      }));
     } else {
       // Utilisateur écrit → notifier tous les admins
       tokens = await this.userService.getAdminPushTokens();
+      this.logger.log(JSON.stringify({
+        event: 'push.recipients.resolved',
+        messageId: message.trackingId,
+        recipientGroup: 'admins',
+        tokenCount: tokens.length,
+      }));
     }
 
-    if (tokens.length === 0) return;
+    if (tokens.length === 0) {
+      this.logger.warn(JSON.stringify({
+        event: 'push.skipped.no-tokens',
+        messageId: message.trackingId,
+      }));
+      return;
+    }
 
     const senderName = isSenderAdmin
       ? 'MatiStore Support'
@@ -116,6 +153,11 @@ export class MessageService {
       this.buildNotificationBody(message),
       { type: 'message', discussionId: message.discussion.trackingId },
     );
+
+    this.logger.log(JSON.stringify({
+      event: 'push.dispatch.completed',
+      messageId: message.trackingId,
+    }));
   }
 
 // dans MessageService, remplacer findByDiscussion existant par :
