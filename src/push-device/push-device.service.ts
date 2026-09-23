@@ -8,7 +8,7 @@ import { PushDeviceRepository } from './push-device.repository';
 export class PushDeviceService {
   constructor(private readonly pushDeviceRepository: PushDeviceRepository) {}
 
-  async create(payload: Partial<PushDevice> | CreatePushDeviceDto,userId?: string) {
+  async create(payload: Partial<PushDevice> | CreatePushDeviceDto, userId?: number) {
     if (!userId) {
       throw new BadRequestException('L\'identifiant utilisateur est requis');
     }
@@ -30,7 +30,7 @@ export class PushDeviceService {
     return this.pushDeviceRepository.save(device);
   }
 
-  async registerForUser(userId: number | string, payload: Partial<PushDevice> | Omit<CreatePushDeviceDto, 'userId'>) {
+  async registerForUser(userId: number, payload: Partial<PushDevice> | Omit<CreatePushDeviceDto, 'userId'>) {
   if (!payload.token) {
     throw new BadRequestException('Le token push est requis');
   }
@@ -39,14 +39,13 @@ export class PushDeviceService {
     throw new BadRequestException('Plateforme invalide. Valeurs acceptées: android, ios');
   }
 
-  const normalizedUserId = String(userId);
   const device = await this.pushDeviceRepository.findByToken(payload.token);
 
   if (device) {
     // Le token existe déjà en base (même appareil déjà enregistré, peu importe
     // par quel utilisateur) : on met à jour cet enregistrement au lieu d'en
     // créer un nouveau, pour ne pas violer la contrainte unique sur `token`.
-    device.userId = normalizedUserId;
+    device.userId = userId;
     device.platform = payload.platform as 'android' | 'ios';
     device.deviceId = payload.deviceId ?? device.deviceId;
     device.active = payload.active ?? true;
@@ -54,7 +53,7 @@ export class PushDeviceService {
   }
 
   const newDevice = this.pushDeviceRepository.create({
-    userId: normalizedUserId,
+    userId,
     token: payload.token,
     platform: payload.platform as 'android' | 'ios',
     deviceId: payload.deviceId,
@@ -72,14 +71,12 @@ export class PushDeviceService {
     return this.pushDeviceRepository.findById(id);
   }
 
-  findByUser(userId: string | number) {
-    const normalizedUserId = String(userId);
-    return this.pushDeviceRepository.findByUser(normalizedUserId);
+  findByUser(userId: number) {
+    return this.pushDeviceRepository.findByUser(userId);
   }
 
-  findActiveByUser(userId: string | number) {
-    const normalizedUserId = String(userId);
-    return this.pushDeviceRepository.findActiveByUser(normalizedUserId);
+  findActiveByUser(userId: number) {
+    return this.pushDeviceRepository.findActiveByUser(userId);
   }
 
   async update(id: string, payload: Partial<PushDevice> | UpdatePushDeviceDto) {

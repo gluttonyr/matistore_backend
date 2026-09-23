@@ -7,8 +7,10 @@ export class PushDevice {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
-  @Column({ name: 'user_id', type: 'uuid', nullable: false })
-  userId!: string;
+  // This is the foreign key to `users.id`.  Public APIs use `trackingId`
+  // (UUID), but relations in this database always use the numeric primary key.
+  @Column({ name: 'user_id', type: 'integer', nullable: false })
+  userId!: number;
 
   @Column({ type: 'text', nullable: false })
   token!: string;

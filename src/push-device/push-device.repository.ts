@@ -17,7 +17,7 @@ export class PushDeviceRepository extends Repository<PushDevice> {
     return this.findOne({ where: { token }, relations: { user: true } as any });
   }
 
-  findByUser(userId: string) {
+  findByUser(userId: number) {
     return this.find({
       where: { userId },
       relations: { user: true } as any,
@@ -25,7 +25,7 @@ export class PushDeviceRepository extends Repository<PushDevice> {
     });
   }
 
-  findActiveByUser(userId: string) {
+  findActiveByUser(userId: number) {
     return this.find({
       where: { userId, active: true },
       relations: { user: true } as any,

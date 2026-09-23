@@ -20,7 +20,7 @@ export class PushDeviceMapper extends BaseMapper<PushDevice, PushDeviceResponseD
     const response = plainToInstance(PushDeviceResponseDto, entity, {
       excludeExtraneousValues: true,
     });
-    response.userId = entity.userId ?? entity.user?.trackingId ?? '';
+    response.userId = entity.userId;
     return response;
   }
 

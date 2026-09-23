@@ -1,4 +1,4 @@
-import { IsBoolean, IsEnum, IsNotEmpty, IsOptional, IsString, IsUUID } from 'class-validator';
+import { IsBoolean, IsEnum, IsNotEmpty, IsOptional, IsString } from 'class-validator';
 
 export enum PushDevicePlatform {
   ANDROID = 'android',
@@ -6,10 +6,6 @@ export enum PushDevicePlatform {
 }
 
 export class CreatePushDeviceDto {
-  @IsNotEmpty()
-  @IsUUID()
-  userId!: string;
-
   @IsNotEmpty()
   @IsString()
   token!: string;

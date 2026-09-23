@@ -5,7 +5,7 @@ export class PushDeviceResponseDto {
   id?: string;
 
   @Expose()
-  userId!: string;
+  userId!: number;
 
   @Expose()
   token!: string;
