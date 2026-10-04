@@ -41,6 +41,14 @@ export class CreateUserDto {
 
   @IsOptional()
   @IsString()
+  appleId?: string;
+
+  @IsOptional()
+  @IsString()
+  identityToken?: string;
+
+  @IsOptional()
+  @IsString()
   provider?: string;
 }
 

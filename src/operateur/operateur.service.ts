@@ -6,6 +6,37 @@ import { UpdateOperateurDto } from './dto/update-operateur.dto';
 import { OperateurMapper } from './mappers/operateur.mapper';
 import { randomUUID } from 'node:crypto';
 
+type OperateurSeed = {
+  nom: string;
+  notification_name: string;
+  formatUssd: string;
+  notificationPackageClient: string;
+  notificationPatternClient: string;
+  notificationPackageAdmin: string;
+  notificationPatternAdmin: string;
+};
+
+const DEFAULT_OPERATEURS: OperateurSeed[] = [
+  {
+    nom: 'TMoney',
+    notification_name: 'MATI STORE',
+    formatUssd: '*145*5*{montant}*1094127#',
+    notificationPackageClient: '',
+    notificationPatternClient: 'payé\\s+(?<montant>[\\d\\s]+)\\s+FCFA[\\s\\S]*?au marchand\\s+\\d+\\s*\\((?<marchand>[^)]+)\\)[\\s\\S]*?Ref\\s*:\\s*(?<reference>\\d+)',
+    notificationPackageAdmin: '',
+    notificationPatternAdmin: 'Paiement de\\s+(?<montant>[\\d\\s]+)\\s+FCFA(?: effectué par\\s+(?<telephone>\\d+))?[\\s\\S]*?Ref\\s*:\\s*(?<reference>\\d+)',
+  },
+  {
+    nom: 'Flooz',
+    notification_name: 'NATI STORE NATI STORE',
+    formatUssd: '*155*2*2*{numero}*{numero}*{montant}#',
+    notificationPackageClient: '',
+    notificationPatternClient: 'Paiement effectu[eé] avec succ[eè]s[\\s\\S]*?Montant\\s*:\\s*(?<montant>[\\d\\s]+(?:[,.]\\d{2})?)\\s*FCFA[\\s\\S]*?Nom du marchand\\s*:\\s*(?<marchand>[\\s\\S]*?)(?=\\s+Num[eé]ro marchand\\s*:)[\\s\\S]*?Txn ID\\s*:\\s*(?<reference>\\d+)',
+    notificationPackageAdmin: '',
+    notificationPatternAdmin: '(?=[\\s\\S]*?Montant\\s*:\\s*(?<montant>[\\d\\s,.]+)\\s*FCFA)(?=[\\s\\S]*?Numero du client\\s*:\\s*(?<telephone>\\d+))?(?=[\\s\\S]*?Txn ID\\s*:\\s*(?<reference>\\d+))',
+  },
+];
+
 @Injectable()
 export class OperateurService implements OnModuleInit {
   constructor(
@@ -18,32 +49,27 @@ export class OperateurService implements OnModuleInit {
   }
 
   private async seedDefaultOperateurs() {
-    const count = await this.operateurRepository.count();
+    const defaultImages: Record<string, string> = { TMoney: 'tmoney.webp', Flooz: 'flooz.webp' };
+    for (const seed of DEFAULT_OPERATEURS) {
+      const existing = await this.operateurRepository.findByNom(seed.nom);
+      if (!existing) {
+        await this.operateurRepository.save({
+          trackingId: randomUUID(),
+          ...seed,
+          imageUrl: defaultImages[seed.nom],
+          active: true,
+        });
+        continue;
+      }
 
-    if (count > 0) {
-      return;
+      // Synchronise les modèles techniques sans écraser l'image ni l'activation admin.
+      Object.assign(existing, {
+        ...seed,
+        notificationPackageClient: seed.notificationPackageClient || existing.notificationPackageClient || '',
+        notificationPackageAdmin: seed.notificationPackageAdmin || existing.notificationPackageAdmin || '',
+      });
+      await this.operateurRepository.save(existing);
     }
-
-    await this.operateurRepository.save([
-      {
-        trackingId: randomUUID(),
-        nom: 'TMoney',
-        // Pas de numéro utilisateur dans ce format : {montant} seul, code marchand fixe.
-        formatUssd: '*145*5*{montant}*1094127#',
-        imageUrl: 'tmoney.webp',
-        active: true,
-      },
-      {
-        trackingId: randomUUID(),
-        nom: 'Flooz',
-        // {numero} (numéro saisi par l'utilisateur) répété deux fois, comme l'exige Moov.
-        formatUssd: '*155*2*2*{numero}*{numero}*{montant}#',
-        imageUrl: 'flooz.webp',
-        active: true,
-      },
-    ]);
-
-    console.log('✅ Opérateurs par défaut créés');
   }
 
   async create(payload: CreateOperateurDto) {
@@ -63,6 +89,10 @@ export class OperateurService implements OnModuleInit {
 
   findAll() {
     return this.operateurRepository.find();
+  }
+
+  findByNom(nom: string) {
+    return this.operateurRepository.findByNom(nom);
   }
 
   findById(id: string) {

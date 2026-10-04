@@ -15,6 +15,10 @@ export class UserRepository extends Repository<User> {
       .getOne();
   }
 
+  findByAppleId(appleId: string) {
+    return this.findOne({ where: { appleId } });
+  }
+
   findOneById(id: string) {
     return this.findOne({ where: { trackingId: id } });
   }

@@ -103,7 +103,7 @@ export class UtilisateurService implements OnModuleInit {
   async getAdminPushTokens(): Promise<string[]> {
   // Adapte selon comment tu récupères déjà les users par rôle ailleurs
   const admins = await this.userRepository.find({
-    where: { role: UserRole.ADMIN },
+    where: { role: UserRole.ADMIN, active: true },
     relations: { pushDevices: true },
   });
   return admins
@@ -114,6 +114,14 @@ export class UtilisateurService implements OnModuleInit {
 
   async findAll() {
     return this.userRepository.find();
+  }
+
+  async findActiveUserIds(): Promise<number[]> {
+    const users = await this.userRepository.find({
+      select: { id: true },
+      where: { role: UserRole.USER, active: true },
+    });
+    return users.map((user) => user.id);
   }
 
   count() {
@@ -128,6 +136,15 @@ export class UtilisateurService implements OnModuleInit {
 
   findByEmail(email: string) {
     return this.userRepository.findOne({ where: { email } });
+  }
+
+  findByAppleId(appleId: string) {
+    return this.userRepository.findByAppleId(appleId);
+  }
+
+  async linkAppleId(user: User, appleId: string) {
+    user.appleId = appleId;
+    return this.userRepository.save(user);
   }
 
   findById(id: string) {

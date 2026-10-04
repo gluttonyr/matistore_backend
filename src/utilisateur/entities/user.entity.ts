@@ -32,6 +32,9 @@ export class User extends BaseEntity {
   @Column({ nullable: true })
   googleId?: string;
 
+  @Column({ nullable: true, unique: true })
+  appleId?: string;
+
   @Column({ nullable: true })
   provider?: string;
 

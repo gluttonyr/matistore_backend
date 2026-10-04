@@ -11,7 +11,7 @@ export class OperateurRepository extends Repository<Operateur> {
 
   findByNom(nom: string) {
     return this.createQueryBuilder('operateur')
-      .where('operateur.nom = :nom', { nom })
+      .where('LOWER(operateur.nom) = LOWER(:nom)', { nom })
       .getOne();
   }
 

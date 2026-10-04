@@ -151,7 +151,12 @@ export class MessageService {
       tokens,
       senderName,
       this.buildNotificationBody(message),
-      { type: 'message', discussionId: message.discussion.trackingId },
+      {
+        type: 'message',
+        discussionId: message.discussion.trackingId,
+        discussionType: message.discussion.type,
+        discussionStatus: message.discussion.statut,
+      },
     );
 
     this.logger.log(JSON.stringify({

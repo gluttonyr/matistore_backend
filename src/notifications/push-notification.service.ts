@@ -11,6 +11,7 @@ export class PushNotificationService {
     title: string,
     body: string,
     data?: Record<string, unknown>,
+    imageUrl?: string,
   ): Promise<void> {
     const validTokens = tokens.filter((token) => Expo.isExpoPushToken(token));
     if (validTokens.length === 0) {
@@ -35,7 +36,9 @@ export class PushNotificationService {
       title,
       body,
       data,
-    }));
+      ...(imageUrl ? { mutableContent: true } : {}),
+      ...(imageUrl ? { richContent: { image: imageUrl } } : {}),
+    } as ExpoPushMessage));
 
     const chunks = this.expo.chunkPushNotifications(messages);
     for (const [chunkIndex, chunk] of chunks.entries()) {

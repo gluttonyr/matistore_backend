@@ -26,6 +26,18 @@ export class DiscussionResponseDto {
   username!:string;
 
   @Expose()
+  userProfile?: {
+    trackingId: string;
+    nom: string;
+    prenom: string;
+    username: string;
+    email: string;
+    telephone?: string | null;
+    active: boolean;
+    createdAt: Date;
+  };
+
+  @Expose()
   lastMessageContent?: string;
 
   @Expose()

@@ -12,6 +12,26 @@ export class CreateOperateurDto {
 
   @IsOptional()
   @IsString()
+  notification_name?: string;
+
+  @IsOptional()
+  @IsString()
+  notificationPackageClient?: string;
+
+  @IsOptional()
+  @IsString()
+  notificationPatternClient?: string;
+
+  @IsOptional()
+  @IsString()
+  notificationPackageAdmin?: string;
+
+  @IsOptional()
+  @IsString()
+  notificationPatternAdmin?: string;
+
+  @IsOptional()
+  @IsString()
   imageUrl?: string;
 
   @IsOptional()

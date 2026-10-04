@@ -25,7 +25,7 @@ export class DiscussionMapper extends BaseMapper<Discussion, DiscussionResponseD
   }
 
   // discussion.mapper.ts
-  toResponse(entity: Discussion): DiscussionResponseDto {
+  toResponse(entity: Discussion, includeUserProfile = false): DiscussionResponseDto {
     const response = plainToInstance(DiscussionResponseDto, entity, {
       excludeExtraneousValues: true,
     });
@@ -44,6 +44,18 @@ export class DiscussionMapper extends BaseMapper<Discussion, DiscussionResponseD
         .join(" ") ?? "";
 
       response.username = `${nom} ${prenom}`.trim();
+      if (includeUserProfile) {
+        response.userProfile = {
+          trackingId: user.trackingId,
+          nom: user.nom,
+          prenom: user.prenom,
+          username: user.username,
+          email: user.email,
+          telephone: user.telephone,
+          active: user.active,
+          createdAt: user.createdAt,
+        };
+      }
     } else {
       response.username = "";
     }
@@ -57,7 +69,7 @@ export class DiscussionMapper extends BaseMapper<Discussion, DiscussionResponseD
     return response;
   }
 
-  async toResponseList(entities: Discussion[]): Promise<DiscussionResponseDto[]> {
-    return Promise.all(entities.map((entity) => Promise.resolve(this.toResponse(entity))));
+  async toResponseList(entities: Discussion[], includeUserProfile = false): Promise<DiscussionResponseDto[]> {
+    return Promise.all(entities.map((entity) => Promise.resolve(this.toResponse(entity, includeUserProfile))));
   }
 }

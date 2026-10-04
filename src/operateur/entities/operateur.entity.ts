@@ -16,6 +16,23 @@ export class Operateur extends BaseEntity {
   @Column({ name: 'format_ussd' })
   formatUssd!: string;
 
+  @Column({ name: 'notification_name', type: 'varchar', length: 100, nullable: true })
+  notification_name?: string;
+
+  // Configuration des notifications reçues sur le téléphone du client.
+  @Column({ name: 'notification_package_client', type: 'varchar', length: 150, nullable: true })
+  notificationPackageClient?: string;
+
+  @Column({ name: 'notification_pattern_client', type: 'text', nullable: true })
+  notificationPatternClient?: string;
+
+  // Configuration des notifications reçues sur le téléphone de l'administrateur.
+  @Column({ name: 'notification_package_admin', type: 'varchar', length: 150, nullable: true })
+  notificationPackageAdmin?: string;
+
+  @Column({ name: 'notification_pattern_admin', type: 'text', nullable: true })
+  notificationPatternAdmin?: string;
+
   @Column({ name: 'image_url', nullable: true })
   imageUrl?: string;
 

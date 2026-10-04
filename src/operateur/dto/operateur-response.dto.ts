@@ -14,6 +14,21 @@ export class OperateurResponseDto {
   formatUssd!: string;
 
   @Expose()
+  notification_name?: string;
+
+  @Expose()
+  notificationPackageClient?: string;
+
+  @Expose()
+  notificationPatternClient?: string;
+
+  @Expose()
+  notificationPackageAdmin?: string;
+
+  @Expose()
+  notificationPatternAdmin?: string;
+
+  @Expose()
   imageUrl?: string;
 
   @Expose()

@@ -6,10 +6,10 @@ import { PushDeviceService } from './push-device.service';
 import { PushDeviceController } from './push-device.controller';
 import { PushDeviceMapper } from './mappers/push-device.mapper';
 import { UtilisateurModule } from '../utilisateur/utilisateur.module';
-import { PushNotificationService } from 'src/notifications/push-notification.service';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([PushDevice]), UtilisateurModule],
+  imports: [TypeOrmModule.forFeature([PushDevice]), UtilisateurModule, NotificationsModule],
   providers: [PushDeviceService, PushDeviceRepository, PushDeviceMapper],
   controllers: [PushDeviceController],
   exports: [PushDeviceService, PushDeviceMapper],

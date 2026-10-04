@@ -22,7 +22,7 @@ export class DiscussionController {
     );
     }
     const discussions = await this.discussionService.findAll();
-    const responseDiscussions = await this.discussionMapper.toResponseList(discussions);
+    const responseDiscussions = await this.discussionMapper.toResponseList(discussions, true);
 
     return { data: responseDiscussions, message: 'Liste des discussions', status: 200 };
   }
@@ -54,7 +54,7 @@ export class DiscussionController {
     }
     const discussions = await this.discussionService.findWithUnreadForAdmin();
     const data = discussions.map((discussion) => {
-      const response = this.discussionMapper.toResponse(discussion);
+      const response = this.discussionMapper.toResponse(discussion, true);
       response.unreadCount = discussion.messages?.length ?? 0;
       return response;
     });

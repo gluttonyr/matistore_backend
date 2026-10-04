@@ -33,6 +33,10 @@ import { Categorie } from './categorie/entities/categorie.entity';
 import { GoogleOauthModule } from './google_oauth/google_oauth.module';
 import { PushDeviceModule } from './push-device/push-device.module';
 import { PushDevice } from './push-device/entities/push-device.entity';
+import { TransactionModule } from './transaction/transaction.module';
+import { Transaction } from './transaction/entities/transaction.entity';
+import { AppNotification } from './app-notification/entities/app-notification.entity';
+import { AppNotificationModule } from './app-notification/app-notification.module';
 
 @Module({
   imports: [
@@ -63,6 +67,8 @@ import { PushDevice } from './push-device/entities/push-device.entity';
       Parametre,
       Operateur,
       Categorie,
+      Transaction,
+      AppNotification,
     ],
 
     synchronize: config.get('NODE_ENV') !== 'production',
@@ -87,6 +93,8 @@ import { PushDevice } from './push-device/entities/push-device.entity';
     PresenceModule,
     StatsModule,
     NotificationsModule,
+    TransactionModule,
+    AppNotificationModule,
   ],
   controllers: [AppController],
   providers: [AppService],

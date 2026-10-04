@@ -22,6 +22,7 @@ export class UserResponseDto {
   @Expose()
   active!: boolean;
   googleId?: string;
+  appleId?: string;
   provider?: string;
   createdAt!: Date;
   updatedAt!: Date;

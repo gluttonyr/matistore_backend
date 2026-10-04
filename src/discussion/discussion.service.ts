@@ -52,6 +52,21 @@ getDiscussionByUser(userId: string) {
       .getMany();
   }
 
+  async getDepotRetraitDiscussion(userId: number): Promise<Discussion> {
+    const discussion = await this.discussionRepository
+      .createQueryBuilder('discussion')
+      .innerJoin('discussion.participants', 'participants')
+      .innerJoin('participants.user', 'user')
+      .where('user.id = :userId', { userId })
+      .andWhere('discussion.type = :type', { type: DiscussionType.DEPOT_RETRAIT })
+      .getOne();
+
+    if (!discussion) {
+      throw new NotFoundException('Discussion dépôt/retrait introuvable pour cet utilisateur');
+    }
+    return discussion;
+  }
+
   countByType(type: DiscussionType) {
     return this.discussionRepository.countByType(type);
   }

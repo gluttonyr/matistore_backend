@@ -9,6 +9,7 @@ import { UtilisateurModule } from '../utilisateur/utilisateur.module';
 import { UserMapper } from 'src/utilisateur/mappers/user.mapper';
 import { GoogleOauthService } from 'src/google_oauth/google_oauth.service';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { AppleOauthService } from 'src/apple_oauth/apple_oauth.service';
 
 @Module({
   imports: [
@@ -46,6 +47,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
     JwtAuthGuard,
     UserMapper,
     GoogleOauthService,
+    AppleOauthService,
   ],
 
   controllers: [AuthController],
