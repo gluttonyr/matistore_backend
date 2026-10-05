@@ -29,7 +29,7 @@ const DEFAULT_OPERATEURS: OperateurSeed[] = [
   {
     nom: 'Flooz',
     notification_name: 'NATI STORE NATI STORE',
-    formatUssd: '*155*2*2*{numero}*{numero}*{montant}#',
+    formatUssd: '*155*2*2*22896589141*22896589141*{montant}#',
     notificationPackageClient: '',
     notificationPatternClient: 'Paiement effectu[eé] avec succ[eè]s[\\s\\S]*?Montant\\s*:\\s*(?<montant>[\\d\\s]+(?:[,.]\\d{2})?)\\s*FCFA[\\s\\S]*?Nom du marchand\\s*:\\s*(?<marchand>[\\s\\S]*?)(?=\\s+Num[eé]ro marchand\\s*:)[\\s\\S]*?Txn ID\\s*:\\s*(?<reference>\\d+)',
     notificationPackageAdmin: '',
