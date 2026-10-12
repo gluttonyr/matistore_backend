@@ -57,6 +57,38 @@ $ npm run test:e2e
 $ npm run test:cov
 ```
 
+## Temporary public Servcul test routes
+
+These unauthenticated routes call the live Servcul API directly. They can credit a real player account or execute a real payout. Use only for the requested Postman test, then remove them before pushing or deploying the backend.
+
+Replace `{{baseUrl}}` with the backend URL. Send `Content-Type: application/json`.
+
+### Test a player deposit
+
+`POST {{baseUrl}}/servcul/test/deposit`
+
+```json
+{
+  "userId": 1829816113,
+  "amount": 1000
+}
+```
+
+### Test a player withdrawal
+
+Servcul requires the player's withdrawal code, not a requested amount. Its response contains the payout amount.
+
+`POST {{baseUrl}}/servcul/test/withdrawal`
+
+```json
+{
+  "userId": 1829816113,
+  "code": "PLAYER_WITHDRAWAL_CODE"
+}
+```
+
+Inspect the backend logs for `servcul.deposit.add.*` or `servcul.deposit.payout.*` to see Servcul's HTTP status and sanitized response body.
+
 ## Deployment
 
 When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.

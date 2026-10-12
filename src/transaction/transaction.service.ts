@@ -191,6 +191,14 @@ export class TransactionService implements OnModuleInit, OnModuleDestroy {
     }
     const transaction = await this.repository.resolveCaptureReconciliation(id, adminId, dto.decision, dto.motif);
     if (!transaction) throw new BadRequestException('Ce dépôt ne nécessite pas de rapprochement manuel');
+    this.logger.log(JSON.stringify({
+      event: 'transaction.deposit.capture-reconciliation.resolved',
+      transactionId: transaction.trackingId,
+      adminId,
+      decision: dto.decision,
+      reason: dto.motif?.trim().slice(0, 400) ?? null,
+      paymentReferencePresent: !!transaction.referencePaiement,
+    }));
     const message = dto.decision === TransactionStatus.VALIDEE
       ? `✅ Après vérification, nous avons confirmé votre paiement et crédité votre compte 1XBET.\n${this.transactionDetails(transaction)}`
       : `❌ Nous n’avons pas pu confirmer votre dépôt.\nMotif : ${transaction.motifRejet ?? '—'}\n${this.transactionDetails(transaction)}`;
@@ -418,7 +426,14 @@ export class TransactionService implements OnModuleInit, OnModuleDestroy {
         [TransactionStatus.EN_VERIFICATION],
       );
       if (!completed) {
-        return { transaction: await this.repository.findByTrackingId(trackingId), credited: false };
+        const current = await this.repository.findByTrackingId(trackingId);
+        this.logger.warn(JSON.stringify({
+          event: 'transaction.servcul.auto-credit.skipped',
+          transactionId: trackingId,
+          currentStatus: current?.statut ?? null,
+          paymentReferencePresent: !!current?.referencePaiement,
+        }));
+        return { transaction: current, credited: false };
       }
       await this.postSystemMessage(
         completed,
@@ -428,7 +443,12 @@ export class TransactionService implements OnModuleInit, OnModuleDestroy {
       return { transaction: completed, credited: true };
     } catch (error) {
       this.logger.error(
-        JSON.stringify({ event: 'transaction.servcul.auto-credit.failed', transactionId: trackingId }),
+        JSON.stringify({
+          event: 'transaction.servcul.auto-credit.failed',
+          transactionId: trackingId,
+          errorName: error instanceof Error ? error.name : typeof error,
+          errorMessage: error instanceof Error ? error.message : String(error),
+        }),
         error instanceof Error ? error.stack : undefined,
       );
       const creditError = 'Votre paiement a été reçu, mais nous n’avons pas encore pu créditer votre compte 1XBET. Nous vérifions la transaction. Ne recommencez pas le dépôt.';

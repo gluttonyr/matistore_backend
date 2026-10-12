@@ -1,5 +1,5 @@
 import { ConfigService } from '@nestjs/config';
-import { ServiceUnavailableException } from '@nestjs/common';
+import { Logger, ServiceUnavailableException } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import { ServculService } from './servcul.service';
 
@@ -57,12 +57,23 @@ describe('ServculService', () => {
 
   it('does not report success when Servcul returns success false', async () => {
     fetchSpy.mockResolvedValueOnce(
-      new Response(JSON.stringify({ success: false, message: 'Rejected' }), { status: 200 }),
+      new Response(JSON.stringify({
+        success: false,
+        message: 'Player not found',
+        code: 'sensitive-upstream-code',
+      }), { status: 200 }),
     );
+    const loggerSpy = jest.spyOn(Logger.prototype, 'log').mockImplementation();
 
     await expect(
       service.addPlayerDeposit(76, { lng: 'ru', summa: 100 }),
     ).rejects.toThrow("L'API Servcul n'a pas confirmé le crédit du joueur");
+
+    const logged = loggerSpy.mock.calls.map(([message]) => String(message)).join('\n');
+    expect(logged).toContain('"event":"servcul.deposit.add.response-body"');
+    expect(logged).toContain('Player not found');
+    expect(logged).not.toContain('sensitive-upstream-code');
+    loggerSpy.mockRestore();
   });
 });
 

@@ -62,19 +62,17 @@ export class ServculService {
           confirm: this.confirm(userId, config.hash),
         }),
       },
+      false,
+      'deposit.add',
     );
-    if (
-      !result
-      || typeof result !== 'object'
-      || !('success' in result)
-      || result.success !== true
-    ) {
+    const normalized = this.normalizeServculResult(result);
+    if (!normalized) {
       throw new BadGatewayException({
         message: "L'API Servcul n'a pas confirmé le crédit du joueur",
         upstreamResponse: result,
       });
     }
-    return result as ServculDepositResult;
+    return normalized;
   }
 
   async payoutPlayer(userId: number, body: ServculPayoutDto): Promise<ServculDepositResult> {
@@ -97,14 +95,15 @@ export class ServculService {
         code,
         confirm: this.confirm(userId, config.hash),
       }),
-    });
-    if (!result || typeof result !== 'object' || !('success' in result) || result.success !== true) {
+    }, false, 'deposit.payout');
+    const normalized = this.normalizeServculResult(result);
+    if (!normalized) {
       throw new BadGatewayException({
         message: "L'API Servcul n'a pas confirmé le retrait du joueur",
         upstreamResponse: result,
       });
     }
-    return result as ServculDepositResult;
+    return normalized;
   }
 
   async findPlayer(userId: number): Promise<ServculPlayer | null> {
@@ -113,7 +112,7 @@ export class ServculService {
       event: 'servcul.player.lookup.started',
       userId,
       cashdeskId: config.cashdeskId,
-      endpoint: this.lookupDiagnosticEndpoint(config, `Users/${userId}`),
+      endpoint: this.diagnosticEndpoint(config, `Users/${userId}`),
     }));
     const signaturePartOne = this.sha256(
       `hash=${config.hash}&userid=${userId}&cashdeskid=${config.cashdeskId}`,
@@ -130,7 +129,7 @@ export class ServculService {
     const player = await this.request(config, `Users/${userId}?${query}`, {
       method: 'GET',
       headers: { sign },
-    }, true, true);
+    }, true, 'player.lookup');
     if (!player || typeof player !== 'object') {
       this.logger.warn(JSON.stringify({
         event: 'servcul.player.lookup.not-found',
@@ -174,6 +173,27 @@ export class ServculService {
       userId: returnedUserId,
       currencyId: Number.isFinite(currencyId) ? currencyId : 0,
       name: returnedName.trim(),
+    };
+  }
+
+  private normalizeServculResult(value: unknown): ServculDepositResult | null {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+
+    const result = value as Record<string, unknown>;
+    const success = result.success ?? result.Success;
+    if (success !== true) return null;
+
+    const rawSumma = result.summa ?? result.Summa;
+    const rawMessageId = result.messageId ?? result.MessageId;
+    const rawMessage = result.message ?? result.Message;
+    const summa = rawSumma == null ? null : Number(rawSumma);
+    const messageId = rawMessageId == null ? null : Number(rawMessageId);
+
+    return {
+      summa: summa !== null && Number.isFinite(summa) ? summa : null,
+      success: true,
+      messageId: messageId !== null && Number.isFinite(messageId) ? messageId : null,
+      message: typeof rawMessage === 'string' ? rawMessage : '',
     };
   }
 
@@ -231,7 +251,7 @@ export class ServculService {
     path: string,
     init: RequestInit,
     notFoundAsNull = false,
-    diagnostic = false,
+    diagnosticEvent?: string,
   ): Promise<unknown> {
     const timeout = Number(this.config.get<string>('SERVCUL_API_TIMEOUT_MS') || 15_000);
     let response: Response;
@@ -247,10 +267,10 @@ export class ServculService {
         signal: AbortSignal.timeout(timeout),
       });
     } catch (error) {
-      if (diagnostic) {
+      if (diagnosticEvent) {
         this.logger.error(JSON.stringify({
-          event: 'servcul.player.lookup.network-error',
-          endpoint: this.lookupDiagnosticEndpoint(config, path),
+          event: `servcul.${diagnosticEvent}.network-error`,
+          endpoint: this.diagnosticEndpoint(config, path),
           errorName: error instanceof Error ? error.name : typeof error,
         }));
       }
@@ -258,10 +278,10 @@ export class ServculService {
     }
 
     const responseText = await response.text();
-    if (diagnostic) {
+    if (diagnosticEvent) {
       this.logger.log(JSON.stringify({
-        event: 'servcul.player.lookup.http-response',
-        endpoint: this.lookupDiagnosticEndpoint(config, path),
+        event: `servcul.${diagnosticEvent}.http-response`,
+        endpoint: this.diagnosticEndpoint(config, path),
         status: response.status,
         contentType: response.headers.get('content-type'),
       }));
@@ -271,9 +291,11 @@ export class ServculService {
     try {
       data = responseText ? JSON.parse(responseText) : null;
     } catch {
-      if (diagnostic) {
+      if (diagnosticEvent) {
         this.logger.warn(JSON.stringify({
-          event: 'servcul.player.lookup.non-json-response',
+          event: `servcul.${diagnosticEvent}.non-json-response`,
+          endpoint: this.diagnosticEndpoint(config, path),
+          status: response.status,
           responsePreview: responseText.slice(0, 1000)
             .replace(/(["']?(?:confirm|sign|hash|cashierpass|token)["']?\s*[:=]\s*["']?)([^,&\s}"']+)/gi, '$1[REDACTED]'),
         }));
@@ -284,10 +306,12 @@ export class ServculService {
       });
     }
 
-    if (diagnostic) {
+    if (diagnosticEvent) {
       this.logger.log(JSON.stringify({
-        event: 'servcul.player.lookup.response-body',
-        body: this.sanitizeLookupDiagnostic(data),
+        event: `servcul.${diagnosticEvent}.response-body`,
+        endpoint: this.diagnosticEndpoint(config, path),
+        status: response.status,
+        body: this.sanitizeDiagnostic(data),
       }));
     }
 
@@ -302,8 +326,8 @@ export class ServculService {
     return data;
   }
 
-  private sanitizeLookupDiagnostic(value: unknown): unknown {
-    if (Array.isArray(value)) return value.slice(0, 10).map((item) => this.sanitizeLookupDiagnostic(item));
+  private sanitizeDiagnostic(value: unknown): unknown {
+    if (Array.isArray(value)) return value.slice(0, 10).map((item) => this.sanitizeDiagnostic(item));
     if (!value || typeof value !== 'object') {
       return typeof value === 'string' ? value.slice(0, 1000) : value;
     }
@@ -312,13 +336,13 @@ export class ServculService {
       if (/sign|confirm|hash|pass|token|secret|authorization|code/i.test(key)) {
         result[key] = '[REDACTED]';
       } else {
-        result[key] = this.sanitizeLookupDiagnostic(item);
+        result[key] = this.sanitizeDiagnostic(item);
       }
     }
     return result;
   }
 
-  private lookupDiagnosticEndpoint(config: ServculConfig, path: string): string {
+  private diagnosticEndpoint(config: ServculConfig, path: string): string {
     try {
       return `${new URL(config.baseUrl).origin}/${path.split('?')[0]}`;
     } catch {
