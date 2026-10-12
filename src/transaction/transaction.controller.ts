@@ -8,6 +8,7 @@ import { ResolveClaimDto } from './dto/resolve-claim.dto';
 import { AdminCaptureHeartbeatDto } from './dto/admin-capture-heartbeat.dto';
 import { AdminCaptureOverrideDto } from './dto/admin-capture-override.dto';
 import { ResolveCaptureReconciliationDto } from './dto/resolve-capture-reconciliation.dto';
+import { RejectTransactionDto } from './dto/reject-transaction.dto';
 import { TransactionMapper } from './mappers/transaction.mapper';
 import { TransactionService } from './transaction.service';
 
@@ -79,6 +80,17 @@ export class TransactionController {
     this.assertAdmin(req);
     const transaction = await this.service.validateManualWithdrawal(id, Number(req.user.userId));
     return { data: this.mapper.toResponse(transaction), message: 'Retrait payé et validé', status: 200 };
+  }
+
+  @Post(':id/reject')
+  async rejectUnvalidated(
+    @Param('id') id: string,
+    @Body() body: RejectTransactionDto,
+    @Req() req: any,
+  ): Promise<ApiResponse> {
+    this.assertAdmin(req);
+    const transaction = await this.service.rejectUnvalidated(id, Number(req.user.userId), body);
+    return { data: this.mapper.toResponse(transaction), message: 'Transaction refusée', status: 200 };
   }
 
   @Get()

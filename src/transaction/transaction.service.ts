@@ -29,6 +29,7 @@ import { AppNotificationService } from '../app-notification/app-notification.ser
 import { AdminCaptureAvailabilityService } from './admin-capture-availability.service';
 import { AdminCaptureHeartbeatDto } from './dto/admin-capture-heartbeat.dto';
 import { ResolveCaptureReconciliationDto } from './dto/resolve-capture-reconciliation.dto';
+import { RejectTransactionDto } from './dto/reject-transaction.dto';
 
 const AUTO_TIMEOUT_SECONDS = 180;
 const AUTO_TIMEOUT_POLL_MS = 5_000;
@@ -167,6 +168,22 @@ export class TransactionService implements OnModuleInit, OnModuleDestroy {
     await this.postSystemMessage(
       transaction,
       `✅ Retrait envoyé au numéro indiqué${transaction.montant > 0 ? ` (${transaction.montant} FCFA)` : ''}.`,
+    );
+    await this.notifyStatusChange(transaction);
+    return transaction;
+  }
+
+  async rejectUnvalidated(id: string, adminId: number, dto: RejectTransactionDto) {
+    await this.assertAdmin(adminId);
+    const motif = dto.motif.trim();
+    if (!motif) throw new BadRequestException('Un motif est requis pour refuser la transaction');
+    const transaction = await this.repository.rejectUnvalidatedTransaction(id, adminId, motif);
+    if (!transaction) {
+      throw new BadRequestException('Une transaction validée ne peut plus être refusée');
+    }
+    await this.postSystemMessage(
+      transaction,
+      `❌ Votre ${transaction.type === TransactionType.DEPOT ? 'dépôt' : 'retrait'} a été refusé par un administrateur.\nMotif : ${motif}`,
     );
     await this.notifyStatusChange(transaction);
     return transaction;
@@ -607,10 +624,9 @@ export class TransactionService implements OnModuleInit, OnModuleDestroy {
 
   private async executeAutomaticPayout(transaction: Transaction): Promise<Transaction> {
     try {
-      await this.executeServculTransaction(transaction);
       const completed = await this.repository.markWithdrawalDebited(
         transaction.trackingId,
-        transaction.montant > 0 ? transaction.montant : null,
+        (lockedTransaction) => this.executeServculTransaction(lockedTransaction),
       );
       if (!completed) throw new ConflictException('Le retrait a changé d’état pendant son traitement');
       await this.postSystemMessage(

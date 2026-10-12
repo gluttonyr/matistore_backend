@@ -9,7 +9,10 @@ export class TransactionRepository extends Repository<Transaction> {
   constructor(@InjectDataSource() dataSource: DataSource) { super(Transaction, dataSource.createEntityManager()); }
   findByTrackingId(trackingId: string) { return this.findOne({ where: { trackingId }, relations: { user: true, validePar: true } }); }
 
-  markWithdrawalDebited(trackingId: string, amount: number | null) {
+  markWithdrawalDebited(
+    trackingId: string,
+    debitPlayer: (transaction: Transaction) => Promise<void>,
+  ) {
     return this.manager.transaction(async (manager) => {
       const repository = manager.getRepository(Transaction);
       const transaction = await repository.findOne({
@@ -18,9 +21,31 @@ export class TransactionRepository extends Repository<Transaction> {
         lock: { mode: 'pessimistic_write' },
       });
       if (!transaction || transaction.statut !== TransactionStatus.EN_VERIFICATION) return null;
-      if (amount !== null && Number.isSafeInteger(amount) && amount > 0) transaction.montant = amount;
+      await debitPlayer(transaction);
       transaction.statut = TransactionStatus.EN_ATTENTE_ADMIN;
       transaction.creditError = null;
+      return repository.save(transaction);
+    });
+  }
+
+  rejectUnvalidatedTransaction(trackingId: string, adminId: number, motif: string) {
+    return this.manager.transaction(async (manager) => {
+      const repository = manager.getRepository(Transaction);
+      const transaction = await repository.findOne({
+        where: { trackingId },
+        relations: { user: true },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!transaction || transaction.statut === TransactionStatus.VALIDEE) return null;
+
+      const wasClaim = transaction.statut === TransactionStatus.EN_RECLAMATION;
+      transaction.statut = TransactionStatus.REJETEE;
+      transaction.motifRejet = motif.trim();
+      transaction.dateValidation = new Date();
+      transaction.validePar = { id: adminId } as User;
+      transaction.creditError = null;
+      transaction.captureReconciliationRequired = false;
+      if (wasClaim) transaction.dateTraitementReclamation = new Date();
       return repository.save(transaction);
     });
   }
