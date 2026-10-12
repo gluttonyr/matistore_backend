@@ -36,6 +36,6 @@ import { NotificationsModule } from 'src/notifications/notifications.module';
   ],
   providers: [MessageService, MessageRepository,MessageGateway,MessageMapper],
   controllers: [MessageController],
-  exports: [MessageService],
+  exports: [MessageService, MessageGateway],
 })
 export class MessageModule {}

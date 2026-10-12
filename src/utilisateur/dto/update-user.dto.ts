@@ -29,6 +29,10 @@ export class UpdateUserDto {
 
   @IsOptional()
   @IsString()
+  image?: string | null;
+
+  @IsOptional()
+  @IsString()
   role?: string;
 
   @IsOptional()
@@ -42,4 +46,3 @@ export class UpdateUserDto {
   @IsString()
   provider?: string;
 }
-

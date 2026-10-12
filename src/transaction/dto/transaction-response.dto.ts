@@ -5,6 +5,7 @@ export class TransactionResponseDto {
   @Exclude() id?: number;
   @Expose() trackingId!: string;
   @Expose() userId!: number;
+  @Expose() userName?: string;
   @Expose() type!: TransactionType;
   @Expose() statut!: TransactionStatus;
   @Expose() montant!: number;
@@ -20,7 +21,11 @@ export class TransactionResponseDto {
   @Expose() methodeValidation?: ValidationMethod;
   @Expose() preuveFichier?: string;
   @Expose() valideParId?: number;
-  @Expose() motifRejet?: string;
+  @Expose() motifRejet?: string | null;
+  @Expose() creditError?: string | null;
+  @Expose() dateReclamation?: Date | null;
+  @Expose() dateTraitementReclamation?: Date | null;
+  @Expose() captureReconciliationRequired!: boolean;
   @Expose() dateValidation?: Date;
   @Expose() createdAt!: Date;
   @Expose() updatedAt!: Date;

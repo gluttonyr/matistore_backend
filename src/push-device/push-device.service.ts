@@ -12,6 +12,10 @@ export class PushDeviceService {
     return this.pushDeviceRepository.findActiveTokensForUsers();
   }
 
+  deactivateTokens(tokens: string[]): Promise<void> {
+    return this.pushDeviceRepository.deactivateTokens(tokens);
+  }
+
   async create(payload: Partial<PushDevice> | CreatePushDeviceDto, userId?: number) {
     if (!userId) {
       throw new BadRequestException('L\'identifiant utilisateur est requis');

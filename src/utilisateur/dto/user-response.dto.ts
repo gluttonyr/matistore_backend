@@ -18,6 +18,8 @@ export class UserResponseDto {
   @Expose()
   telephone!: string;
   @Expose()
+  image?: string | null;
+  @Expose()
   role!: UserRole;
   @Expose()
   active!: boolean;
@@ -27,4 +29,3 @@ export class UserResponseDto {
   createdAt!: Date;
   updatedAt!: Date;
 }
-

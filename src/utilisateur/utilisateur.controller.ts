@@ -1,15 +1,22 @@
-import { Body, Controller, Delete, ForbiddenException, Get, Param, Post, Put, Req, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, ForbiddenException, Get, Param, Post, Put, Req, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { UtilisateurService } from './utilisateur.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import type { ApiResponse } from '../common/api-response.interface';
 import { AuthGuard } from '@nestjs/passport';
 import { UserRole } from './enums/user-role.enum';
+import { UploadService } from 'src/uploads/upload.service';
+import { UserMapper } from './mappers/user.mapper';
 
 @UseGuards(AuthGuard('jwt'))
 @Controller('users')
 export class UtilisateurController {
-  constructor(private readonly utilisateurService: UtilisateurService) {}
+  constructor(
+    private readonly utilisateurService: UtilisateurService,
+    private readonly uploadService: UploadService,
+    private readonly userMapper: UserMapper,
+  ) {}
 
 
  @Get('profile')
@@ -63,14 +70,59 @@ async updatePassword(@Req() req: any,@Body() body:any): Promise<ApiResponse> {
   }
 
   @Put(':id')
-  async update(@Param('id') id: string, @Body() body: UpdateUserDto): Promise<ApiResponse> {
-    const user = await this.utilisateurService.update(id, body);
-    return { data: user, message: 'Utilisateur mis à jour', status: 200 };
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 5 * 1024 * 1024 } }))
+  async update(
+    @Param('id') id: string,
+    @UploadedFile() file: Express.Multer.File | undefined,
+    @Body() body: UpdateUserDto & { data?: string },
+    @Req() req: any,
+  ): Promise<ApiResponse> {
+    const requester = await this.utilisateurService.findUserById(Number(req.user.userId));
+    const target = await this.utilisateurService.findById(id);
+    if (!target) {
+      throw new BadRequestException('Utilisateur introuvable');
+    }
+    if (requester?.role !== UserRole.ADMIN && target.id !== requester?.id) {
+      throw new ForbiddenException("Vous n'êtes pas autorisé à modifier ce profil");
+    }
+
+    let payload = this.parseUpdateData(body);
+    if (requester?.role !== UserRole.ADMIN) {
+      payload = {
+        nom: payload.nom,
+        prenom: payload.prenom,
+        email: payload.email,
+        telephone: payload.telephone,
+        image: payload.image,
+      };
+    }
+    if (file) {
+      if (!['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'].includes(file.mimetype)) {
+        throw new BadRequestException('Format d’image non pris en charge');
+      }
+      payload.image = this.uploadService.saveFile('profile', 'profiles', file);
+    }
+
+    const user = await this.utilisateurService.update(id, payload);
+    return { data: this.userMapper.toResponse(user), message: 'Utilisateur mis à jour', status: 200 };
   }
 
   @Delete(':id')
   async remove(@Param('id') id: string): Promise<ApiResponse> {
     await this.utilisateurService.remove(id);
     return { data: null, message: 'Utilisateur supprimé', status: 200 };
+  }
+
+  private parseUpdateData(body: UpdateUserDto & { data?: string }): UpdateUserDto {
+    if (typeof body.data !== 'string') {
+      const { data: _data, ...payload } = body;
+      return payload;
+    }
+
+    try {
+      return JSON.parse(body.data) as UpdateUserDto;
+    } catch {
+      throw new BadRequestException('Les données du profil sont invalides');
+    }
   }
 }

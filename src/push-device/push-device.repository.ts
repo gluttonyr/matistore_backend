@@ -43,4 +43,13 @@ export class PushDeviceRepository extends Repository<PushDevice> {
       .getRawMany<{ token: string }>();
     return rows.map(({ token }) => token);
   }
+
+  async deactivateTokens(tokens: string[]): Promise<void> {
+    if (tokens.length === 0) return;
+    await this.createQueryBuilder()
+      .update(PushDevice)
+      .set({ active: false })
+      .where('token IN (:...tokens)', { tokens })
+      .execute();
+  }
 }

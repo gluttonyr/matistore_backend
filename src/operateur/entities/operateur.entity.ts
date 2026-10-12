@@ -16,8 +16,15 @@ export class Operateur extends BaseEntity {
   @Column({ name: 'format_ussd' })
   formatUssd!: string;
 
+  /** Code USSD exécuté par MatiStore pour payer le client après son débit 1XBET. */
+  @Column({ name: 'format_retrait_ussd', type: 'varchar', length: 255, nullable: true })
+  formatRetraitUssd?: string | null;
+
   @Column({ name: 'notification_name', type: 'varchar', length: 100, nullable: true })
   notification_name?: string;
+
+  @Column({ name: 'notification_title_admin', type: 'varchar', length: 150, nullable: true })
+  notificationTitleAdmin?: string;
 
   // Configuration des notifications reçues sur le téléphone du client.
   @Column({ name: 'notification_package_client', type: 'varchar', length: 150, nullable: true })

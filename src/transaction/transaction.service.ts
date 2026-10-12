@@ -1,5 +1,8 @@
 import {
   BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  ServiceUnavailableException,
   Injectable,
   Logger,
   OnModuleDestroy,
@@ -8,9 +11,8 @@ import {
 import { TransactionRepository } from './transaction.repository';
 import { CreateTransactionDto } from './dto/create-transaction.dto';
 import { UpdateTransactionDto } from './dto/update-transaction.dto';
-import { ClientReferenceDto } from './dto/client-reference.dto';
 import { AdminCaptureDto } from './dto/admin-capture.dto';
-import { RejectTransactionDto } from './dto/reject-transaction.dto';
+import { ResolveClaimDto } from './dto/resolve-claim.dto';
 import { Transaction, TransactionStatus, TransactionType, ValidationMethod } from './entities/transaction.entity';
 import { MessageService } from '../message/message.service';
 import { MessageType } from '../message/entities/message.entity';
@@ -20,11 +22,16 @@ import { PushDeviceService } from '../push-device/push-device.service';
 import { PushNotificationService } from '../notifications/push-notification.service';
 import { UtilisateurService } from '../utilisateur/utilisateur.service';
 import { OperateurService } from '../operateur/operateur.service';
+import { ServculService } from '../servcul/servcul.service';
+import { UserRole } from '../utilisateur/enums/user-role.enum';
+import { MessageGateway } from '../message/message.gatway';
+import { AppNotificationService } from '../app-notification/app-notification.service';
+import { AdminCaptureAvailabilityService } from './admin-capture-availability.service';
+import { AdminCaptureHeartbeatDto } from './dto/admin-capture-heartbeat.dto';
+import { ResolveCaptureReconciliationDto } from './dto/resolve-capture-reconciliation.dto';
 
-const MATCHING_WINDOW_MINUTES = 30;
-const AUTO_TIMEOUT_SECONDS = 30;
-const REFERENCE_TIMEOUT_SECONDS = MATCHING_WINDOW_MINUTES * 60;
-const AUTO_TIMEOUT_POLL_MS = 10_000;
+const AUTO_TIMEOUT_SECONDS = 180;
+const AUTO_TIMEOUT_POLL_MS = 5_000;
 
 @Injectable()
 export class TransactionService implements OnModuleInit, OnModuleDestroy {
@@ -35,11 +42,15 @@ export class TransactionService implements OnModuleInit, OnModuleDestroy {
   constructor(
     private readonly repository: TransactionRepository,
     private readonly messageService: MessageService,
+    private readonly messageGateway: MessageGateway,
     private readonly discussionService: DiscussionService,
     private readonly pushDeviceService: PushDeviceService,
     private readonly pushNotificationService: PushNotificationService,
     private readonly userService: UtilisateurService,
     private readonly operateurService: OperateurService,
+    private readonly servculService: ServculService,
+    private readonly appNotificationService: AppNotificationService,
+    private readonly captureAvailability: AdminCaptureAvailabilityService,
   ) {}
 
   onModuleInit() {
@@ -61,9 +72,28 @@ export class TransactionService implements OnModuleInit, OnModuleDestroy {
     if (payload.type === TransactionType.DEPOT && (!payload.montant || payload.montant < 1)) {
       throw new BadRequestException('Le montant est requis pour un dépôt');
     }
-    const clientReference = payload.type === TransactionType.DEPOT
-      ? payload.referenceClient?.trim() || undefined
-      : undefined;
+    if (payload.type === TransactionType.DEPOT) {
+      const capture = await this.captureAvailability.getStatus();
+      if (!capture.available) {
+        throw new ServiceUnavailableException('Les dépôts sont temporairement indisponibles : la capture automatique des paiements est hors ligne. Réessayez plus tard.');
+      }
+    }
+    if (payload.type === TransactionType.RETRAIT && !payload.codeRetrait?.trim()) {
+      throw new BadRequestException('Le code de retrait est requis');
+    }
+    if (payload.type === TransactionType.RETRAIT && !payload.operateur?.trim()) {
+      throw new BadRequestException('Choisissez un opérateur pour le retrait');
+    }
+    const accountId = payload.compteDestinataire?.trim();
+    if (!accountId || !/^\d+$/.test(accountId)) {
+      throw new BadRequestException('Un ID 1XBET numérique est requis');
+    }
+    const playerId = Number(accountId);
+    if (!Number.isSafeInteger(playerId)) {
+      throw new BadRequestException('L’ID 1XBET est invalide');
+    }
+    const player = await this.servculService.findPlayer(playerId);
+    if (!player) throw new BadRequestException('ID 1XBET introuvable');
     const transactionDiscussion = await this.discussionService.getDepotRetraitDiscussion(userId);
 
     const operateur = payload.operateur
@@ -72,32 +102,102 @@ export class TransactionService implements OnModuleInit, OnModuleDestroy {
     if (payload.operateur && (!operateur || !operateur.active)) {
       throw new BadRequestException('Opérateur introuvable ou inactif');
     }
-    const created = await this.repository.save(this.repository.create({
+    const transactionData = this.repository.create({
       ...payload,
-      referenceClient: clientReference,
-      notificationBruteClient: payload.type === TransactionType.DEPOT ? payload.notificationBruteClient : undefined,
       montant: payload.montant ?? 0,
+      compteDestinataire: String(playerId),
       operateur: operateur?.nom ?? payload.operateur,
       discussionTrackingId: transactionDiscussion.trackingId,
       statut: payload.type === TransactionType.RETRAIT
-        ? TransactionStatus.EN_ATTENTE_ADMIN
-        : clientReference
-          ? TransactionStatus.EN_VERIFICATION
-          : TransactionStatus.EN_ATTENTE_AUTO,
+        ? TransactionStatus.EN_VERIFICATION
+        : TransactionStatus.EN_ATTENTE_AUTO,
       user: { id: userId } as any,
-    }));
-    const transaction = await this.repository.findByTrackingId(created.trackingId) ?? created;
-    if (transaction.type === TransactionType.DEPOT && transaction.referenceClient) {
-      await this.postSystemMessage(
-        transaction,
-        `🔎 Référence détectée : ${transaction.referenceClient}\nVérification du dépôt en cours...`,
+    });
+    let created: Transaction;
+    if (payload.type === TransactionType.DEPOT) {
+      const currentCapture = await this.captureAvailability.getStatus();
+      if (!currentCapture.available) {
+        throw new ServiceUnavailableException('Les dépôts sont temporairement indisponibles : la capture automatique des paiements est hors ligne. Réessayez plus tard.');
+      }
+      const pausedExpirationMs = await this.captureAvailability.getPausedExpirationMs();
+      transactionData.capturePauseMsAtCreation = String(pausedExpirationMs);
+      transactionData.captureReconciliationRequired = !currentCapture.deviceAvailable;
+      const result = await this.repository.createDepositIfNoOpen(
+        userId,
+        transactionData,
+        new Date(Date.now() - AUTO_TIMEOUT_SECONDS * 1000),
+        pausedExpirationMs,
       );
+      for (const expired of result.expired) {
+        await this.postSystemMessage(expired, `❌ Dépôt expiré.\n${expired.motifRejet}`);
+        await this.notifyStatusChange(expired);
+      }
+      if (!result.transaction) {
+        if (!result.existing && !result.expired.length) {
+          throw new BadRequestException('Utilisateur introuvable pour créer le dépôt');
+        }
+        throw new ConflictException(result.existing?.statut === TransactionStatus.EN_RECLAMATION
+          ? 'Votre transaction est en réclamation. Attendez notre réponse avant d’en créer une autre.'
+          : result.existing?.referencePaiement
+          ? 'Votre paiement est confirmé et le crédit du compte est en cours ou nécessite une vérification. Ne relancez pas le paiement.'
+          : result.existing?.statut === TransactionStatus.EN_ATTENTE_ADMIN
+            ? 'Votre transaction précédente attend encore son traitement. Nous vous informerons dès sa mise à jour.'
+            : 'Un dépôt est déjà en cours. Attendez sa vérification ; sans notification valide, il expirera après trois minutes.');
+      }
+      created = result.transaction;
+    } else {
+      const createdWithdrawal = await this.repository.createWithdrawalIfCodeUnused(userId, transactionData);
+      if (!createdWithdrawal) {
+        throw new ConflictException('Ce code de retrait a déjà été soumis et ne sera pas envoyé une seconde fois.');
+      }
+      created = createdWithdrawal;
+      return this.executeAutomaticPayout(created);
     }
+    const transaction = await this.repository.findByTrackingId(created.trackingId) ?? created;
     await this.notifyStatusChange(transaction);
     return transaction;
   }
 
   findByUser(userId: number) { return this.repository.findByUser(userId); }
+
+  async validateManualWithdrawal(id: string, adminId: number) {
+    await this.assertAdmin(adminId);
+    const transaction = await this.repository.validateManualWithdrawal(id, adminId);
+    if (!transaction) throw new BadRequestException('Ce retrait n’attend pas une validation de paiement administrateur');
+    await this.postSystemMessage(
+      transaction,
+      `✅ Retrait envoyé au numéro indiqué${transaction.montant > 0 ? ` (${transaction.montant} FCFA)` : ''}.`,
+    );
+    await this.notifyStatusChange(transaction);
+    return transaction;
+  }
+
+  getCaptureStatus() { return this.captureAvailability.getStatus(); }
+
+  async captureHeartbeat(adminId: number, dto: AdminCaptureHeartbeatDto) {
+    await this.assertAdmin(adminId);
+    return this.captureAvailability.heartbeat(adminId, dto.deviceId, dto.ready, dto.reason);
+  }
+
+  async setCaptureManualOverride(adminId: number, enabled: boolean) {
+    await this.assertAdmin(adminId);
+    return this.captureAvailability.setManualOverride(enabled);
+  }
+
+  async resolveCaptureReconciliation(id: string, adminId: number, dto: ResolveCaptureReconciliationDto) {
+    await this.assertAdmin(adminId);
+    if (dto.decision === TransactionStatus.REJETEE && !dto.motif?.trim()) {
+      throw new BadRequestException('Un motif est requis pour clore le rapprochement par un refus');
+    }
+    const transaction = await this.repository.resolveCaptureReconciliation(id, adminId, dto.decision, dto.motif);
+    if (!transaction) throw new BadRequestException('Ce dépôt ne nécessite pas de rapprochement manuel');
+    const message = dto.decision === TransactionStatus.VALIDEE
+      ? `✅ Après vérification, nous avons confirmé votre paiement et crédité votre compte 1XBET.\n${this.transactionDetails(transaction)}`
+      : `❌ Nous n’avons pas pu confirmer votre dépôt.\nMotif : ${transaction.motifRejet ?? '—'}\n${this.transactionDetails(transaction)}`;
+    await this.postSystemMessage(transaction, message);
+    await this.notifyStatusChange(transaction);
+    return transaction;
+  }
 
   findAllForAdmin() {
     return this.repository.find({
@@ -114,127 +214,262 @@ export class TransactionService implements OnModuleInit, OnModuleDestroy {
     return entity;
   }
 
-  async reportClientReference(id: string, userId: number, dto: ClientReferenceDto) {
-    const entity = await this.findById(id, userId);
-    if (entity.statut !== TransactionStatus.EN_ATTENTE_AUTO) return entity;
-
-    // La déclaration client reste séparée de la référence confirmée par l'admin.
-    entity.referenceClient = dto.referencePaiement;
-    entity.notificationBruteClient = dto.notificationBrute;
-    entity.statut = TransactionStatus.EN_VERIFICATION;
-    const saved = await this.repository.save(entity);
-    await this.postSystemMessage(saved, `🔎 Référence détectée : ${dto.referencePaiement}\nVérification en cours...`);
-    await this.notifyStatusChange(saved);
-    return saved;
-  }
-
-  async processAdminCapture(dto: AdminCaptureDto): Promise<{ matched: boolean; retryable: boolean; transactionId?: string }> {
+  async processAdminCapture(
+    dto: AdminCaptureDto,
+    adminId: number,
+  ): Promise<{
+    matched: boolean;
+    retryable: boolean;
+    transactionId?: string;
+    message?: string;
+    reason?: string;
+    extracted?: { montant: number | null; reference: string | null; telephone: string | null };
+    transactionSelection?: 'most_recent' | 'unique_match';
+    creditSucceeded?: boolean;
+  }> {
+    await this.assertAdmin(adminId);
     const operateur = await this.operateurService.findByNom(dto.operateur);
     if (!operateur || !operateur.active) {
       throw new BadRequestException('Opérateur introuvable ou inactif');
     }
 
-    const reference = dto.referencePaiement.trim();
-    if (!reference) return { matched: false, retryable: false };
     const expectedPackage = operateur.notificationPackageAdmin?.trim();
     const receivedPackage = dto.packageNotification?.trim();
     if (expectedPackage && expectedPackage !== receivedPackage) {
       this.logger.warn(JSON.stringify({ event: 'admin.capture.package-mismatch', operateur: operateur.nom }));
-      return { matched: false, retryable: false };
+      return {
+        matched: false,
+        retryable: false,
+        reason: `Package reçu "${receivedPackage ?? ''}" différent du package configuré "${expectedPackage}".`,
+      };
     }
+
+    const expectedTitle = operateur.notificationTitleAdmin?.trim();
+    const receivedTitle = dto.titreNotification?.trim();
+    if (expectedTitle && expectedTitle.toLocaleLowerCase() !== receivedTitle?.toLocaleLowerCase()) {
+      this.logger.warn(JSON.stringify({ event: 'admin.capture.title-mismatch', operateur: operateur.nom }));
+      return {
+        matched: false,
+        retryable: false,
+        reason: `Titre reçu "${receivedTitle ?? ''}" différent du titre configuré "${expectedTitle}".`,
+      };
+    }
+
+    const notificationMatch = this.execNotificationPattern(operateur.notificationPatternAdmin, dto.notificationBrute);
+    const amount = this.parseNotificationAmount(notificationMatch?.groups?.montant);
+    const reference = notificationMatch?.groups?.reference?.trim();
+    const notificationPhone = notificationMatch?.groups?.telephone?.trim();
+    const extracted = {
+      montant: Number.isFinite(amount) ? amount : null,
+      reference: reference || null,
+      telephone: notificationPhone || null,
+    };
+    const debugResult = (matched: boolean, retryable: boolean, reason: string) => ({
+      matched,
+      retryable,
+      reason,
+      extracted,
+    });
+    if (!notificationMatch) {
+      return debugResult(false, false, 'Le texte ne correspond pas au modèle de notification configuré.');
+    }
+    if (amount !== dto.montant) {
+      return debugResult(false, false, `Montant de la notification (${amount}) différent du montant reçu (${dto.montant}).`);
+    }
+    if (!reference) {
+      return debugResult(false, false, 'Aucune référence de paiement exploitable dans la notification.');
+    }
+    if (!notificationPhone || !dto.numeroTelephoneClient
+      || !this.phonesMatch(notificationPhone, dto.numeroTelephoneClient)) {
+      return debugResult(false, false, 'Le numéro de la notification ne correspond pas au numéro fourni par la transaction.');
+    }
+
     if (await this.repository.findByConfirmedReference(reference)) {
       this.logger.warn(JSON.stringify({ event: 'admin.capture.duplicate-reference', operateur: operateur.nom, reference }));
-      return { matched: false, retryable: false };
+      return {
+        matched: false,
+        retryable: false,
+        message: 'Cette transaction a déjà été enregistrée.',
+        reason: 'La référence de paiement est déjà enregistrée.',
+        extracted,
+      };
     }
 
-    const since = new Date(Date.now() - MATCHING_WINDOW_MINUTES * 60_000);
-    let candidates = await this.repository.findOpenCandidates(operateur.nom, dto.montant, since);
-    if (dto.numeroTelephoneClient) {
-      const notificationPhone = dto.numeroTelephoneClient.replace(/\D/g, '');
-      const byPhone = candidates.filter((candidate) => candidate.numeroTelephone?.replace(/\D/g, '') === notificationPhone);
-      if (byPhone.length === 0) return { matched: false, retryable: true };
-      candidates = byPhone;
-    }
+    const notificationPostedAt = new Date(dto.notificationPostedAt ?? Date.now());
+    const since = new Date(notificationPostedAt.getTime() - AUTO_TIMEOUT_SECONDS * 1000);
+    let candidates = await this.repository.findOpenCandidates(
+      operateur.nom,
+      dto.montant,
+      since,
+      notificationPostedAt,
+    );
+    candidates = candidates.filter((candidate) =>
+      candidate.createdAt <= notificationPostedAt
+      && candidate.createdAt >= since
+      && candidate.numeroTelephone
+      && this.phonesMatch(candidate.numeroTelephone, notificationPhone),
+    );
     if (candidates.length === 0) {
       this.logger.warn(JSON.stringify({ event: 'admin.capture.no-match', operateur: operateur.nom, montant: dto.montant }));
-      return { matched: false, retryable: true };
+      return debugResult(false, true, 'Aucune transaction en attente ne correspond à cet opérateur, montant et numéro.');
     }
 
-    let match: Transaction | undefined;
-    if (operateur.nom.toLowerCase() === 'flooz') {
-      const withClientReference = candidates.filter((candidate) => candidate.referenceClient?.trim());
-      if (withClientReference.length > 0) {
-        const referenceMatches = withClientReference.filter((candidate) => candidate.referenceClient?.trim() === reference);
-        if (referenceMatches.length !== 1) {
-          this.logger.warn(JSON.stringify({ event: 'admin.capture.flooz-reference-match-not-unique', operateur: operateur.nom, montant: dto.montant }));
-          return { matched: false, retryable: true };
-        }
-        match = referenceMatches[0];
-      } else if (candidates.length === 1) {
-        // Compatibilité pour les demandes Flooz créées avec une preuve/USSD sans référence client.
-        match = candidates[0];
-      } else {
-        this.logger.warn(JSON.stringify({ event: 'admin.capture.ambiguous-flooz-match', operateur: operateur.nom, montant: dto.montant }));
-        return { matched: false, retryable: true };
-      }
-    } else {
-      match = candidates.find((candidate) => candidate.referenceClient?.trim() === reference);
+    candidates.sort((first, second) =>
+      second.createdAt.getTime() - first.createdAt.getTime()
+      || second.trackingId.localeCompare(first.trackingId),
+    );
+    const selectedCandidate = candidates[0];
+    if (candidates.length > 1) {
+      this.logger.warn(JSON.stringify({
+        event: 'admin.capture.multiple-candidates',
+        operateur: operateur.nom,
+        montant: dto.montant,
+        candidateCount: candidates.length,
+        selectedTransactionId: selectedCandidate.trackingId,
+      }));
     }
-    if (!match) return { matched: false, retryable: true };
 
-    // Ne jamais recopier la référence déclarée par le client dans le champ confirmé.
-    match.referencePaiement = reference;
-    match.notificationBrute = dto.notificationBrute;
-    match.statut = TransactionStatus.EN_ATTENTE_ADMIN;
-    match.methodeValidation = undefined;
-    match.dateValidation = undefined;
-    let saved: Transaction;
     try {
-      saved = await this.repository.save(match);
+      const saved = await this.markCapturedDeposit(
+        selectedCandidate.trackingId,
+        reference,
+        dto.notificationBrute,
+      );
+      if (!saved.transaction) return debugResult(false, false, 'La transaction a changé d’état avant son enregistrement.');
+      this.logger.log(JSON.stringify({
+        event: 'admin.capture.matched',
+        transactionId: saved.transaction.trackingId,
+        creditSucceeded: saved.credited,
+      }));
+      return {
+        matched: true,
+        retryable: false,
+        transactionId: saved.transaction.trackingId,
+        creditSucceeded: saved.credited,
+        reason: saved.credited
+          ? 'Paiement vérifié et crédit Servcul confirmé.'
+          : 'Paiement vérifié, mais le crédit Servcul reste à traiter.',
+        extracted,
+        transactionSelection: candidates.length > 1 ? 'most_recent' : 'unique_match',
+      };
     } catch (error) {
       const driverError = (error as { driverError?: { code?: string } }).driverError;
-      if (driverError?.code === '23505') {
+      if (error instanceof ConflictException || driverError?.code === '23505') {
         this.logger.warn(JSON.stringify({ event: 'admin.capture.duplicate-reference-race', operateur: operateur.nom, reference }));
-        return { matched: false, retryable: false };
+        return {
+          matched: false,
+          retryable: false,
+          message: 'Cette transaction a déjà été enregistrée.',
+          reason: 'La référence de paiement est déjà enregistrée (conflit détecté lors de la sauvegarde).',
+          extracted,
+        };
       }
       throw error;
     }
+  }
+
+  private execNotificationPattern(pattern: string | undefined, notification: string): RegExpExecArray | null {
+    if (!pattern) return null;
+    try {
+      return new RegExp(pattern).exec(notification);
+    } catch (error) {
+      this.logger.error('Modèle de notification opérateur invalide', error);
+      throw new BadRequestException('Le modèle de notification de cet opérateur est invalide');
+    }
+  }
+
+  private parseNotificationAmount(value?: string): number {
+    if (!value) return NaN;
+    const digits = value
+      .replace(/\s/g, '')
+      .replace(/[,.]\d{2}$/, '')
+      .replace(/[^0-9]/g, '');
+    return digits ? Number.parseInt(digits, 10) : NaN;
+  }
+
+  private phonesMatch(first: string, second: string): boolean {
+    const a = first.replace(/\D/g, '');
+    const b = second.replace(/\D/g, '');
+    if (!a || !b) return false;
+    if (a === b) return true;
+    const shorter = a.length < b.length ? a : b;
+    const longer = a.length < b.length ? b : a;
+    return shorter.length >= 8 && longer.endsWith(shorter);
+  }
+
+  private async markCapturedDeposit(
+    trackingId: string,
+    reference: string,
+    notification: string,
+  ): Promise<{ transaction: Transaction | null; credited: boolean }> {
+    const saved = await this.repository.markDepositAsVerified(trackingId, reference, notification);
+    if (!saved) return { transaction: null, credited: false };
+
     await this.postSystemMessage(
       saved,
-      `✅ Paiement détecté et vérifié automatiquement. Un administrateur doit encore confirmer le crédit.\nRéférence : ${reference}`,
+      '✅ Paiement reçu. Nous créditons votre compte 1XBET.',
     );
-    await this.notifyStatusChange(saved);
-    this.logger.log(JSON.stringify({ event: 'admin.capture.matched', transactionId: saved.trackingId }));
-    return { matched: true, retryable: false, transactionId: saved.trackingId };
+    this.emitTransactionStatusChange(saved);
+    try {
+      const completed = await this.repository.completeAutomaticTransaction(
+        trackingId,
+        (transaction) => this.executeServculTransaction(transaction),
+        ValidationMethod.AUTO_NOTIFICATION,
+        [TransactionStatus.EN_VERIFICATION],
+      );
+      if (!completed) {
+        return { transaction: await this.repository.findByTrackingId(trackingId), credited: false };
+      }
+      await this.postSystemMessage(
+        completed,
+        `✅ Dépôt validé. Votre compte 1XBET a été crédité${completed.montant > 0 ? ` de ${completed.montant} FCFA` : ''}.`,
+      );
+      await this.notifyStatusChange(completed);
+      return { transaction: completed, credited: true };
+    } catch (error) {
+      this.logger.error(
+        JSON.stringify({ event: 'transaction.servcul.auto-credit.failed', transactionId: trackingId }),
+        error instanceof Error ? error.stack : undefined,
+      );
+      const creditError = 'Votre paiement a été reçu, mais nous n’avons pas encore pu créditer votre compte 1XBET. Nous vérifions la transaction. Ne recommencez pas le dépôt.';
+      const current = await this.repository.setAutomaticTransactionError(
+        trackingId,
+        TransactionStatus.EN_VERIFICATION,
+        TransactionStatus.EN_ATTENTE_PREUVE,
+        creditError,
+      );
+      if (current?.statut === TransactionStatus.EN_ATTENTE_PREUVE) {
+        await this.postSystemMessage(
+          current,
+          '⚠️ Votre paiement a été reçu, mais le crédit de votre compte 1XBET n’a pas encore abouti. Nous vérifions la transaction. Ne recommencez pas le dépôt.',
+        );
+        await this.notifyStatusChange(current);
+      }
+      return { transaction: current ?? saved, credited: false };
+    }
   }
 
   async timeoutStaleTransactions(): Promise<void> {
+    const capture = await this.captureAvailability.getStatus();
+    if (!capture.available) return;
     const now = Date.now();
+    const expiredBefore = new Date(now - AUTO_TIMEOUT_SECONDS * 1000);
+    const pausedMs = await this.captureAvailability.getPausedExpirationMs();
     const stale = await this.repository.findStaleAutoWaiting(
-      new Date(now - AUTO_TIMEOUT_SECONDS * 1000),
-      new Date(now - REFERENCE_TIMEOUT_SECONDS * 1000),
+      expiredBefore,
+      pausedMs,
     );
     for (const entity of stale) {
-      // Relecture avant écriture pour ne pas écraser un matching ou une annulation concurrente.
-      const current = await this.repository.findByTrackingId(entity.trackingId);
-      if (!current || ![TransactionStatus.EN_ATTENTE_AUTO, TransactionStatus.EN_VERIFICATION].includes(current.statut)) continue;
-      current.statut = TransactionStatus.EN_ATTENTE_PREUVE;
-      const saved = await this.repository.save(current);
-      await this.postSystemMessage(saved, '⚠️ Vérification automatique non aboutie.\nVeuillez joindre une preuve de paiement.');
+      const saved = await this.repository.rejectExpiredDeposit(
+        entity.trackingId,
+        expiredBefore,
+        'Aucune notification de paiement valide reçue dans le délai de trois minutes.',
+        pausedMs,
+      );
+      if (!saved) continue;
+      await this.postSystemMessage(saved, `❌ Dépôt refusé.\n${saved.motifRejet}`);
       await this.notifyStatusChange(saved);
     }
-  }
-
-  async submitProof(id: string, userId: number, preuveFichier: string) {
-    const entity = await this.findById(id, userId);
-    if (![TransactionStatus.EN_ATTENTE_AUTO, TransactionStatus.EN_VERIFICATION, TransactionStatus.EN_ATTENTE_PREUVE].includes(entity.statut)) {
-      throw new BadRequestException('Cette transaction ne peut pas recevoir de preuve');
-    }
-    entity.preuveFichier = preuveFichier;
-    entity.statut = TransactionStatus.EN_ATTENTE_ADMIN;
-    const saved = await this.repository.save(entity);
-    await this.notifyStatusChange(saved);
-    return saved;
   }
 
   async cancel(id: string, userId: number) {
@@ -242,38 +477,44 @@ export class TransactionService implements OnModuleInit, OnModuleDestroy {
     if ([TransactionStatus.VALIDEE, TransactionStatus.REJETEE, TransactionStatus.ANNULEE].includes(entity.statut)) {
       throw new BadRequestException('Cette transaction ne peut plus être annulée');
     }
-    entity.statut = TransactionStatus.ANNULEE;
-    const saved = await this.repository.save(entity);
+    let saved: Transaction | null;
+    if (entity.type === TransactionType.DEPOT) {
+      saved = await this.repository.cancelPendingDeposit(id, userId);
+      if (!saved) {
+        throw new BadRequestException('Ce dépôt a déjà été vérifié ou ne peut plus être annulé');
+      }
+    } else {
+      entity.statut = TransactionStatus.ANNULEE;
+      saved = await this.repository.save(entity);
+    }
+    await this.postSystemMessage(saved, '❌ Votre dépôt a été annulé.');
     await this.notifyStatusChange(saved);
     return saved;
   }
 
-  async validateManually(id: string, adminId: number) {
-    const entity = await this.findById(id);
-    if (entity.statut !== TransactionStatus.EN_ATTENTE_ADMIN) {
-      throw new BadRequestException('Cette transaction n’attend pas une validation manuelle');
+  async claimRejected(id: string, userId: number) {
+    const saved = await this.repository.claimRejectedTransaction(id, userId);
+    if (!saved) {
+      throw new BadRequestException('Seule une transaction refusée sans réclamation déjà traitée peut être réclamée');
     }
-    entity.statut = TransactionStatus.VALIDEE;
-    entity.methodeValidation = ValidationMethod.ADMIN_MANUEL;
-    entity.dateValidation = new Date();
-    entity.validePar = { id: adminId } as any;
-    const saved = await this.repository.save(entity);
-    await this.postSystemMessage(saved, `${saved.type === TransactionType.DEPOT ? '✅ Dépôt' : '✅ Retrait'} validé par un administrateur.`);
+    await this.postSystemMessage(saved, this.claimChatMessage(saved));
     await this.notifyStatusChange(saved);
     return saved;
   }
 
-  async reject(id: string, adminId: number, dto: RejectTransactionDto) {
-    const entity = await this.findById(id);
-    if (entity.statut !== TransactionStatus.EN_ATTENTE_ADMIN) {
-      throw new BadRequestException('Cette transaction n’attend pas une décision manuelle');
+  async resolveClaim(id: string, adminId: number, dto: ResolveClaimDto) {
+    await this.assertAdmin(adminId);
+    if (dto.decision === TransactionStatus.REJETEE && !dto.motif?.trim()) {
+      throw new BadRequestException('Un motif est requis pour rejeter la réclamation');
     }
-    entity.statut = TransactionStatus.REJETEE;
-    entity.motifRejet = dto.motif;
-    entity.dateValidation = new Date();
-    entity.validePar = { id: adminId } as any;
-    const saved = await this.repository.save(entity);
-    await this.postSystemMessage(saved, `❌ ${saved.type === TransactionType.DEPOT ? 'Dépôt' : 'Retrait'} refusé.\nMotif : ${dto.motif}`);
+    const saved = await this.repository.resolveClaim(id, adminId, dto.decision, dto.motif);
+    if (!saved) throw new BadRequestException('Cette transaction n’attend pas une réclamation');
+
+    const label = saved.type === TransactionType.DEPOT ? 'dépôt' : 'retrait';
+    const resultMessage = dto.decision === TransactionStatus.VALIDEE
+      ? `✅ Après vérification, nous avons validé votre ${label}.`
+      : `❌ Après vérification, nous n’avons pas pu valider votre ${label}.\nMotif : ${saved.motifRejet}`;
+    await this.postSystemMessage(saved, resultMessage);
     await this.notifyStatusChange(saved);
     return saved;
   }
@@ -282,13 +523,21 @@ export class TransactionService implements OnModuleInit, OnModuleDestroy {
     const entity = await this.findById(id);
     const previousStatus = entity.statut;
     const statusChanged = payload.statut !== undefined && payload.statut !== previousStatus;
+    if (statusChanged) {
+      throw new BadRequestException('Le statut de la transaction est géré automatiquement');
+    }
     if (statusChanged && [TransactionStatus.VALIDEE, TransactionStatus.REJETEE, TransactionStatus.ANNULEE].includes(previousStatus)) {
       throw new BadRequestException('Une transaction terminÃ©e ne peut plus changer d\u2019Ã©tape');
+    }
+    if (payload.statut === TransactionStatus.VALIDEE && entity.statut !== TransactionStatus.VALIDEE) {
+      throw new BadRequestException('Utilisez la validation dédiée pour valider une transaction');
     }
     if (payload.statut === TransactionStatus.REJETEE && !payload.motifRejet?.trim() && !entity.motifRejet?.trim()) {
       throw new BadRequestException('Un motif est requis pour refuser la transaction');
     }
+
     Object.assign(entity, payload);
+    if (entity.statut === TransactionStatus.REJETEE) entity.creditError = null;
     if ([TransactionStatus.VALIDEE, TransactionStatus.REJETEE].includes(entity.statut)) {
       entity.dateValidation = new Date();
       entity.validePar = { id: adminId } as any;
@@ -302,19 +551,141 @@ export class TransactionService implements OnModuleInit, OnModuleDestroy {
     return saved;
   }
 
-  private transactionStatusMessage(transaction: Transaction): string {
-    if (transaction.statut === TransactionStatus.EN_ATTENTE_ADMIN && transaction.type === TransactionType.DEPOT) {
-      return 'Paiement détecté et vérifié. Un administrateur doit encore confirmer le crédit.';
+  private async assertAdmin(adminId: number): Promise<void> {
+    const admin = await this.userService.findUserById(adminId);
+    if (!admin || admin.role !== UserRole.ADMIN || !admin.active) {
+      throw new ForbiddenException('Seul un administrateur actif peut traiter cette opération');
     }
-    const label = transaction.type === TransactionType.DEPOT ? 'DÃ©pÃ´t' : 'Retrait';
+  }
+
+  private async executeServculTransaction(transaction: Transaction): Promise<void> {
+    const accountId = transaction.compteDestinataire?.trim();
+    const playerId = accountId && /^\d+$/.test(accountId) ? Number(accountId) : NaN;
+    if (!Number.isSafeInteger(playerId)) {
+      throw new BadRequestException('ID 1XBET manquant ou invalide');
+    }
+
+    if (transaction.type === TransactionType.DEPOT) {
+      await this.servculService.addPlayerDeposit(playerId, {
+        lng: 'ru',
+        summa: transaction.montant,
+      });
+      return;
+    }
+    if (!transaction.codeRetrait?.trim()) {
+      throw new BadRequestException('Code de retrait manquant');
+    }
+    const payout = await this.servculService.payoutPlayer(playerId, {
+      lng: 'ru',
+      code: transaction.codeRetrait.trim(),
+    });
+    const payoutAmount = Number(payout.summa);
+    transaction.montant = payout.summa !== null && Number.isSafeInteger(payoutAmount) && payoutAmount > 0
+      ? payoutAmount
+      : transaction.montant;
+  }
+
+  private async executeAutomaticPayout(transaction: Transaction): Promise<Transaction> {
+    try {
+      await this.executeServculTransaction(transaction);
+      const completed = await this.repository.markWithdrawalDebited(
+        transaction.trackingId,
+        transaction.montant > 0 ? transaction.montant : null,
+      );
+      if (!completed) throw new ConflictException('Le retrait a changé d’état pendant son traitement');
+      await this.postSystemMessage(
+        completed,
+        `✅ Demande de retrait validée. Votre compte 1XBET a été débité${completed.montant > 0 ? ` de ${completed.montant} FCFA` : ''}. Patientez pendant la préparation de l’envoi au numéro indiqué.`,
+      );
+      await this.notifyStatusChange(completed);
+      return completed;
+    } catch (error) {
+      this.logger.error(
+        JSON.stringify({ event: 'transaction.servcul.auto-payout.failed', transactionId: transaction.trackingId }),
+        error instanceof Error ? error.stack : undefined,
+      );
+      const message = this.getPayoutFailureMessage(error);
+      const current = await this.repository.setAutomaticTransactionError(
+        transaction.trackingId,
+        TransactionStatus.EN_VERIFICATION,
+        TransactionStatus.EN_ATTENTE_PREUVE,
+        message,
+      );
+      if (current) {
+        await this.postSystemMessage(
+          current,
+          `⚠️ ${message}`,
+        );
+        await this.notifyStatusChange(current);
+        return current;
+      }
+      throw error;
+    }
+  }
+
+  private getPayoutFailureMessage(error: unknown): string {
+    const getResponse = (error as { getResponse?: () => unknown } | null)?.getResponse;
+    if (typeof getResponse === 'function') {
+      const payload = getResponse.call(error);
+      if (payload && typeof payload === 'object') {
+        const upstream = (payload as Record<string, unknown>).upstreamResponse;
+        const findMessage = (value: unknown): string | null => {
+          if (Array.isArray(value)) {
+            for (const item of value) {
+              const message = findMessage(item);
+              if (message) return message;
+            }
+            return null;
+          }
+          if (!value || typeof value !== 'object') return null;
+          const record = value as Record<string, unknown>;
+          for (const key of ['message', 'error', 'description', 'reason', 'detail']) {
+            const candidate = record[key];
+            if (typeof candidate === 'string' && candidate.trim()) return candidate.trim();
+          }
+          for (const nested of Object.values(record)) {
+            const message = findMessage(nested);
+            if (message) return message;
+          }
+          return null;
+        };
+        const servculMessage = findMessage(upstream);
+        if (servculMessage) return servculMessage.slice(0, 400);
+
+        const reason = typeof upstream === 'string' ? upstream.toLocaleLowerCase() : '';
+        const invalidCode = (
+          /code|код/.test(reason)
+          && /invalid|incorrect|wrong|expired|невер|неправ|ист[её]к/.test(reason)
+        );
+        if (invalidCode) return 'Code de retrait invalide ou expiré. Vérifiez le code dans votre compte 1XBET puis réessayez.';
+      }
+    }
+    return 'Le code de retrait n’a pas pu être confirmé pour le moment. Ne le renvoyez pas. Nous vérifions votre demande.';
+  }
+
+  private transactionStatusMessage(transaction: Transaction): string {
+    if (transaction.statut === TransactionStatus.EN_VERIFICATION && transaction.type === TransactionType.DEPOT && transaction.referencePaiement) {
+      return 'Votre paiement a été reçu et nous créditons votre compte 1XBET.';
+    }
+    const label = transaction.type === TransactionType.DEPOT ? 'Dépôt' : 'Retrait';
     switch (transaction.statut) {
-      case TransactionStatus.EN_ATTENTE_AUTO: return `${label} en attente du paiement.`;
-      case TransactionStatus.EN_VERIFICATION: return `${label} en cours de vÃ©rification.`;
-      case TransactionStatus.EN_ATTENTE_PREUVE: return `Une preuve de paiement est requise pour le ${label.toLowerCase()}.`;
-      case TransactionStatus.EN_ATTENTE_ADMIN: return `Le ${label.toLowerCase()} est en attente de validation par un administrateur.`;
-      case TransactionStatus.VALIDEE: return `${label} validÃ© par un administrateur.`;
-      case TransactionStatus.REJETEE: return `${label} refusÃ©.\nMotif : ${transaction.motifRejet ?? ''}`;
-      case TransactionStatus.ANNULEE: return `${label} annulÃ©.`;
+      case TransactionStatus.EN_ATTENTE_AUTO: return 'Nous vérifions votre paiement.';
+      case TransactionStatus.EN_VERIFICATION: return transaction.type === TransactionType.RETRAIT
+        ? 'Nous vérifions votre code de retrait et votre compte 1XBET.'
+        : 'Nous vérifions votre transaction.';
+      case TransactionStatus.EN_ATTENTE_PREUVE: return transaction.type === TransactionType.RETRAIT
+        ? 'Le code de retrait n’a pas pu être confirmé pour le moment. Nous vérifions votre demande. Ne renvoyez pas ce code.'
+        : 'Nous n’avons pas encore pu confirmer votre paiement. Nous vérifions votre demande avant que vous ne recommenciez.';
+      case TransactionStatus.EN_ATTENTE_ADMIN:
+        return transaction.type === TransactionType.RETRAIT
+          ? `Demande de retrait validée. Votre compte 1XBET a été débité${transaction.montant > 0 ? ` de ${transaction.montant} FCFA` : ''}. Patientez pendant la préparation de l’envoi au numéro indiqué.`
+          : 'Votre dépôt attend encore son traitement. Nous vous informerons dès sa mise à jour.';
+      case TransactionStatus.EN_RECLAMATION: return `Nous vérifions votre réclamation concernant le ${label.toLowerCase()}.`;
+      case TransactionStatus.VALIDEE: return transaction.type === TransactionType.DEPOT
+        ? `Dépôt validé. Votre compte 1XBET a été crédité${transaction.montant > 0 ? ` de ${transaction.montant} FCFA` : ''}.`
+        : `Retrait envoyé au numéro indiqué${transaction.montant > 0 ? ` (${transaction.montant} FCFA)` : ''}.`;
+      case TransactionStatus.REJETEE: return `${label} refusé. ${transaction.motifRejet ?? 'La vérification n’a pas abouti.'}`;
+      case TransactionStatus.ANNULEE: return `${label} annulé.`;
     }
   }
 
@@ -332,11 +703,35 @@ export class TransactionService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async notifyStatusChange(transaction: Transaction) {
+    this.emitTransactionStatusChange(transaction);
+    const body = this.statusMessage(transaction);
+    if ((transaction.type === TransactionType.RETRAIT && transaction.statut === TransactionStatus.EN_ATTENTE_ADMIN)
+      || transaction.statut === TransactionStatus.EN_RECLAMATION
+      || transaction.statut === TransactionStatus.VALIDEE
+      || transaction.statut === TransactionStatus.REJETEE
+      || !!transaction.creditError) {
+      const label = transaction.type === TransactionType.DEPOT ? 'Dépôt' : 'Retrait';
+      const title = transaction.statut === TransactionStatus.VALIDEE
+        ? `${label} réussi`
+        : transaction.statut === TransactionStatus.REJETEE
+          ? `${label} refusé`
+        : transaction.statut === TransactionStatus.EN_RECLAMATION
+          ? 'Réclamation reçue'
+        : transaction.type === TransactionType.RETRAIT && transaction.statut === TransactionStatus.EN_ATTENTE_ADMIN
+            ? 'Retrait en cours'
+        : transaction.statut === TransactionStatus.EN_ATTENTE_PREUVE
+          ? `${transaction.type === TransactionType.DEPOT ? 'Paiement' : 'Code de retrait'} à vérifier`
+            : `${label} en attente`;
+      try {
+        await this.appNotificationService.createForUser(transaction.user.id, title, body);
+      } catch (error) {
+        this.logger.error('Échec de l’enregistrement de la notification du dépôt', error);
+      }
+    }
     try {
       const clientDevices = await this.pushDeviceService.findActiveByUser(transaction.user.id);
       const clientTokens = clientDevices.map((device) => device.token);
       const adminTokens = await this.userService.getAdminPushTokens();
-      const body = this.statusMessage(transaction.statut, transaction.type);
       const userName = `${transaction.user.prenom ?? ''} ${transaction.user.nom ?? ''}`.trim();
       const data = {
         type: 'transaction',
@@ -347,12 +742,33 @@ export class TransactionService implements OnModuleInit, OnModuleDestroy {
         transactionType: transaction.type,
         userName,
       };
-      if (clientTokens.length) await this.pushNotificationService.sendToTokens(clientTokens, 'MatiStore', body, data);
+      const clientTitle = transaction.statut === TransactionStatus.VALIDEE
+        ? `${transaction.type === TransactionType.DEPOT ? 'Dépôt' : 'Retrait'} réussi`
+        : transaction.statut === TransactionStatus.REJETEE
+          ? `${transaction.type === TransactionType.DEPOT ? 'Dépôt' : 'Retrait'} refusé`
+          : transaction.statut === TransactionStatus.EN_RECLAMATION
+            ? 'Réclamation reçue'
+          : transaction.type === TransactionType.RETRAIT && transaction.statut === TransactionStatus.EN_ATTENTE_ADMIN
+            ? 'Retrait en cours'
+          : transaction.statut === TransactionStatus.EN_ATTENTE_PREUVE
+            ? `${transaction.type === TransactionType.DEPOT ? 'Paiement' : 'Code de retrait'} à vérifier`
+          : transaction.creditError
+            ? `${transaction.type === TransactionType.DEPOT ? 'Dépôt' : 'Retrait'} en attente`
+            : 'MatiStore';
+      const adminTitle = transaction.type === TransactionType.RETRAIT && transaction.statut === TransactionStatus.EN_ATTENTE_ADMIN
+        ? 'Retrait à envoyer au client'
+        : transaction.statut === TransactionStatus.EN_RECLAMATION
+          ? 'Nouvelle réclamation'
+          : 'MatiStore';
+      if (clientTokens.length) await this.pushNotificationService.sendToTokens(clientTokens, clientTitle, body, data);
       if (adminTokens.length) {
+        const adminBody = transaction.statut === TransactionStatus.EN_RECLAMATION
+          ? `${userName || 'Un utilisateur'} réclame sa transaction.\n${this.claimChatMessage(transaction)}\n${this.transactionDetails(transaction)}`
+          : `Transaction ${transaction.user.nom ?? ''} : ${body}\n${this.transactionDetails(transaction)}`;
         await this.pushNotificationService.sendToTokens(
           adminTokens,
-          'MatiStore',
-          `Transaction ${transaction.user.nom ?? ''} : ${body}`,
+          adminTitle,
+          adminBody,
           data,
         );
       }
@@ -361,24 +777,66 @@ export class TransactionService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private statusMessage(statut: TransactionStatus, type: TransactionType): string {
-    if (statut === TransactionStatus.EN_ATTENTE_ADMIN && type === TransactionType.DEPOT) {
-      return 'Le paiement de votre dépôt est vérifié. Un administrateur va finaliser le crédit de votre compte.';
+  private emitTransactionStatusChange(transaction: Transaction) {
+    this.messageGateway.emitTransactionStatusChanged({
+      trackingId: transaction.trackingId,
+      user: transaction.user,
+      type: transaction.type,
+      statut: transaction.statut,
+      montant: transaction.montant,
+      updatedAt: transaction.updatedAt,
+    });
+  }
+
+  private statusMessage(transaction: Transaction): string {
+    if (transaction.statut === TransactionStatus.EN_RECLAMATION) {
+      return 'Nous avons reçu votre réclamation. Nous vous informerons après vérification.';
     }
-    if (statut === TransactionStatus.EN_ATTENTE_ADMIN && type === TransactionType.RETRAIT) {
-      return 'Demande de retrait reçue. Elle sera traitée manuellement par MatiStore.';
+    if (transaction.creditError) {
+      return transaction.creditError;
     }
-    if (statut === TransactionStatus.EN_ATTENTE_AUTO && type === TransactionType.DEPOT) {
-      return 'Demande de dépôt reçue. Suivez les étapes pour effectuer le paiement.';
+    if (transaction.type === TransactionType.DEPOT && transaction.statut === TransactionStatus.VALIDEE) {
+      const result = transaction.methodeValidation === ValidationMethod.ADMIN_MANUEL
+        ? 'Après vérification, nous avons accepté votre réclamation et crédité votre compte 1XBET.'
+        : 'Votre dépôt a été crédité avec succès sur votre compte 1XBET.';
+      return result;
     }
-    const label = type === TransactionType.DEPOT ? 'dépôt' : 'retrait';
-    switch (statut) {
-      case TransactionStatus.VALIDEE: return `Votre ${label} a été validé ✅`;
-      case TransactionStatus.REJETEE: return `Votre ${label} a été refusé`;
-      case TransactionStatus.EN_ATTENTE_PREUVE: return `Merci de joindre une preuve de paiement pour votre ${label}`;
-      case TransactionStatus.EN_ATTENTE_ADMIN: return `Votre preuve de ${label} est en cours de vérification`;
-      case TransactionStatus.EN_VERIFICATION: return `Vérification de votre ${label} en cours`;
-      default: return `Mise à jour de votre ${label}`;
+    if (transaction.statut === TransactionStatus.REJETEE) {
+      return `Votre ${transaction.type === TransactionType.DEPOT ? 'dépôt' : 'retrait'} a été refusé. ${transaction.motifRejet || 'La vérification n’a pas abouti.'}`;
     }
+    if (transaction.type === TransactionType.RETRAIT && transaction.statut === TransactionStatus.VALIDEE) {
+      return `Retrait envoyé au numéro indiqué${transaction.montant > 0 ? ` (${transaction.montant} FCFA)` : ''}.`;
+    }
+    if (transaction.statut === TransactionStatus.EN_ATTENTE_AUTO && transaction.type === TransactionType.DEPOT) {
+      return 'Nous vérifions votre paiement.';
+    }
+    if (transaction.type === TransactionType.RETRAIT && transaction.statut === TransactionStatus.EN_VERIFICATION) {
+      return 'Nous vérifions votre code de retrait. Vous recevrez une notification dès que le résultat sera confirmé.';
+    }
+    return this.transactionStatusMessage(transaction);
+  }
+
+  private transactionDetails(transaction: Transaction): string {
+    return [
+      `Transaction : ${transaction.trackingId}`,
+      `Type : ${transaction.type === TransactionType.DEPOT ? 'Dépôt' : 'Retrait'}`,
+      ...(transaction.operateur ? [`Opérateur : ${transaction.operateur}`] : []),
+      `Date de demande : ${transaction.createdAt.toLocaleString('fr-FR')}`,
+      ...(transaction.montant > 0 ? [`Montant : ${transaction.montant} FCFA`] : []),
+      `Numéro : ${transaction.numeroTelephone || '—'}`,
+      ...(transaction.type === TransactionType.RETRAIT && transaction.compteDestinataire
+        ? [`Compte 1XBET : ${transaction.compteDestinataire}`]
+        : []),
+      ...(transaction.codeRetrait ? [`Code de retrait : ${transaction.codeRetrait}`] : []),
+      ...(transaction.referencePaiement ? [`Référence : ${transaction.referencePaiement}`] : []),
+      ...(transaction.dateReclamation
+        ? [`Date de réclamation : ${transaction.dateReclamation.toLocaleString('fr-FR')}`]
+        : []),
+    ].join('\n');
+  }
+
+  private claimChatMessage(transaction: Transaction): string {
+    const label = transaction.type === TransactionType.DEPOT ? 'dépôt' : 'retrait';
+    return `📣 Nous avons reçu votre réclamation concernant votre ${label}. Nous vous informerons après vérification. Référence : ${transaction.trackingId}.`;
   }
 }

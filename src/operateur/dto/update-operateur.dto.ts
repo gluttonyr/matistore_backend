@@ -11,15 +11,15 @@ export class UpdateOperateurDto {
 
   @IsOptional()
   @IsString()
+  formatRetraitUssd?: string;
+
+  @IsOptional()
+  @IsString()
   notification_name?: string;
 
   @IsOptional()
   @IsString()
-  notificationPackageClient?: string;
-
-  @IsOptional()
-  @IsString()
-  notificationPatternClient?: string;
+  notificationTitleAdmin?: string;
 
   @IsOptional()
   @IsString()

@@ -10,9 +10,8 @@ type OperateurSeed = {
   nom: string;
   notification_name: string;
   formatUssd: string;
-  notificationPackageClient: string;
-  notificationPatternClient: string;
   notificationPackageAdmin: string;
+  notificationTitleAdmin: string;
   notificationPatternAdmin: string;
 };
 
@@ -21,19 +20,17 @@ const DEFAULT_OPERATEURS: OperateurSeed[] = [
     nom: 'TMoney',
     notification_name: 'MATI STORE',
     formatUssd: '*145*5*{montant}*1094127#',
-    notificationPackageClient: '',
-    notificationPatternClient: 'payé\\s+(?<montant>[\\d\\s]+)\\s+FCFA[\\s\\S]*?au marchand\\s+\\d+\\s*\\((?<marchand>[^)]+)\\)[\\s\\S]*?Ref\\s*:\\s*(?<reference>\\d+)',
     notificationPackageAdmin: '',
+    notificationTitleAdmin: '',
     notificationPatternAdmin: 'Paiement de\\s+(?<montant>[\\d\\s]+)\\s+FCFA(?: effectué par\\s+(?<telephone>\\d+))?[\\s\\S]*?Ref\\s*:\\s*(?<reference>\\d+)',
   },
   {
     nom: 'Flooz',
     notification_name: 'NATI STORE NATI STORE',
     formatUssd: '*155*2*2*22896589141*22896589141*{montant}#',
-    notificationPackageClient: '',
-    notificationPatternClient: 'Paiement effectu[eé] avec succ[eè]s[\\s\\S]*?Montant\\s*:\\s*(?<montant>[\\d\\s]+(?:[,.]\\d{2})?)\\s*FCFA[\\s\\S]*?Nom du marchand\\s*:\\s*(?<marchand>[\\s\\S]*?)(?=\\s+Num[eé]ro marchand\\s*:)[\\s\\S]*?Txn ID\\s*:\\s*(?<reference>\\d+)',
     notificationPackageAdmin: '',
-    notificationPatternAdmin: '(?=[\\s\\S]*?Montant\\s*:\\s*(?<montant>[\\d\\s,.]+)\\s*FCFA)(?=[\\s\\S]*?Numero du client\\s*:\\s*(?<telephone>\\d+))?(?=[\\s\\S]*?Txn ID\\s*:\\s*(?<reference>\\d+))',
+    notificationTitleAdmin: '',
+    notificationPatternAdmin: '(?=[\\s\\S]*?Montant\\s*:\\s*(?<montant>[\\d\\s,.]+)\\s*FCFA)(?=[\\s\\S]*?Numero du client\\s*:\\s*(?<telephone>\\d+))(?=[\\s\\S]*?Txn ID\\s*:\\s*(?<reference>\\d+))',
   },
 ];
 
@@ -65,8 +62,8 @@ export class OperateurService implements OnModuleInit {
       // Synchronise les modèles techniques sans écraser l'image ni l'activation admin.
       Object.assign(existing, {
         ...seed,
-        notificationPackageClient: seed.notificationPackageClient || existing.notificationPackageClient || '',
         notificationPackageAdmin: seed.notificationPackageAdmin || existing.notificationPackageAdmin || '',
+        notificationTitleAdmin: seed.notificationTitleAdmin || existing.notificationTitleAdmin || '',
       });
       await this.operateurRepository.save(existing);
     }

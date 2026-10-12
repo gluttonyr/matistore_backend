@@ -23,6 +23,9 @@ export class User extends BaseEntity {
   @Column({ nullable: true })
   telephone?: string;
 
+  @Column({ nullable: true })
+  image?: string;
+
   @Column({ type: 'enum', enum: UserRole, default: UserRole.USER })
   role!: UserRole;
 

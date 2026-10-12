@@ -1,6 +1,14 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Expo, ExpoPushMessage } from 'expo-server-sdk';
 
+export interface PushDeliveryReport {
+  recipientCount: number;
+  attemptedCount: number;
+  deliveredCount: number;
+  failedCount: number;
+  invalidTokens: string[];
+}
+
 @Injectable()
 export class PushNotificationService {
   private readonly expo = new Expo();
@@ -12,14 +20,21 @@ export class PushNotificationService {
     body: string,
     data?: Record<string, unknown>,
     imageUrl?: string,
-  ): Promise<void> {
+  ): Promise<PushDeliveryReport> {
     const validTokens = tokens.filter((token) => Expo.isExpoPushToken(token));
+    const invalidTokens: string[] = tokens.filter((token) => !Expo.isExpoPushToken(token));
     if (validTokens.length === 0) {
       this.logger.warn(JSON.stringify({
         event: 'push.skipped.invalid-tokens',
         receivedTokenCount: tokens.length,
       }));
-      return;
+      return {
+        recipientCount: tokens.length,
+        attemptedCount: 0,
+        deliveredCount: 0,
+        failedCount: tokens.length,
+        invalidTokens,
+      };
     }
 
     this.logger.log(JSON.stringify({
@@ -32,6 +47,7 @@ export class PushNotificationService {
 
     const messages: ExpoPushMessage[] = validTokens.map((to) => ({
       to,
+      channelId: 'default',
       sound: 'default',
       title,
       body,
@@ -41,36 +57,50 @@ export class PushNotificationService {
     } as ExpoPushMessage));
 
     const chunks = this.expo.chunkPushNotifications(messages);
+    let deliveredCount = 0;
+    let failedCount = tokens.length - validTokens.length;
     for (const [chunkIndex, chunk] of chunks.entries()) {
       try {
         const tickets = await this.expo.sendPushNotificationsAsync(chunk);
-        const errors = tickets.reduce<Array<{ ticketIndex: number; error: string }>>(
-          (result, ticket, ticketIndex) => {
-            if (ticket.status === 'error') {
-              result.push({
-                ticketIndex,
-                error: ticket.details?.error ?? ticket.message ?? 'unknown',
-              });
+        tickets.forEach((ticket, ticketIndex) => {
+          if (ticket.status === 'ok') {
+            deliveredCount += 1;
+          } else {
+            failedCount += 1;
+            const error = ticket.details?.error ?? ticket.message ?? 'unknown';
+            if (error === 'DeviceNotRegistered') {
+              invalidTokens.push(chunk[ticketIndex].to as string);
             }
-            return result;
-          },
-          [],
-        );
-
-        this.logger.log(JSON.stringify({
-          event: 'push.expo.tickets.received',
-          chunkIndex,
-          ticketCount: tickets.length,
-          acceptedCount: tickets.length - errors.length,
-          errorCount: errors.length,
-          errors,
-        }));
+            this.logger.warn(JSON.stringify({
+              event: 'push.expo.ticket.failed',
+              chunkIndex,
+              ticketIndex,
+              error,
+            }));
+          }
+        });
+        if (tickets.length < chunk.length) {
+          failedCount += chunk.length - tickets.length;
+        }
       } catch (error) {
+        failedCount += chunk.length;
         this.logger.error(
-          JSON.stringify({ event: 'push.expo.request.failed', chunkIndex, chunkSize: chunk.length }),
-          error instanceof Error ? error.stack : String(error),
+          JSON.stringify({
+            event: 'push.expo.request.failed',
+            chunkIndex,
+            chunkSize: chunk.length,
+            message: error instanceof Error ? error.message : String(error),
+          }),
         );
       }
     }
+
+    return {
+      recipientCount: tokens.length,
+      attemptedCount: validTokens.length,
+      deliveredCount,
+      failedCount,
+      invalidTokens,
+    };
   }
 }

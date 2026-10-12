@@ -14,13 +14,13 @@ export class OperateurResponseDto {
   formatUssd!: string;
 
   @Expose()
+  formatRetraitUssd?: string | null;
+
+  @Expose()
   notification_name?: string;
 
   @Expose()
-  notificationPackageClient?: string;
-
-  @Expose()
-  notificationPatternClient?: string;
+  notificationTitleAdmin?: string;
 
   @Expose()
   notificationPackageAdmin?: string;

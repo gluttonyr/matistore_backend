@@ -7,6 +7,7 @@ export enum TransactionStatus {
   EN_VERIFICATION = 'EN_VERIFICATION',
   EN_ATTENTE_PREUVE = 'EN_ATTENTE_PREUVE',
   EN_ATTENTE_ADMIN = 'EN_ATTENTE_ADMIN',
+  EN_RECLAMATION = 'EN_RECLAMATION',
   VALIDEE = 'VALIDEE',
   REJETEE = 'REJETEE',
   ANNULEE = 'ANNULEE',
@@ -34,7 +35,12 @@ export class Transaction {
   @Column({ type: 'enum', enum: ValidationMethod, nullable: true }) methodeValidation?: ValidationMethod;
   @Column({ type: 'varchar', length: 255, nullable: true }) preuveFichier?: string;
   @ManyToOne(() => User, { nullable: true }) @JoinColumn({ name: 'validated_by_id' }) validePar?: User;
-  @Column({ type: 'text', nullable: true }) motifRejet?: string;
+  @Column({ type: 'text', nullable: true }) motifRejet?: string | null;
+  @Column({ name: 'credit_error', type: 'text', nullable: true }) creditError?: string | null;
+  @Column({ name: 'date_reclamation', type: 'timestamp', nullable: true }) dateReclamation?: Date | null;
+  @Column({ name: 'date_traitement_reclamation', type: 'timestamp', nullable: true }) dateTraitementReclamation?: Date | null;
+  @Column({ name: 'capture_pause_ms_at_creation', type: 'bigint', default: 0 }) capturePauseMsAtCreation!: string;
+  @Column({ name: 'capture_reconciliation_required', type: 'boolean', default: false }) captureReconciliationRequired!: boolean;
   @Column({ type: 'timestamp', nullable: true }) dateValidation?: Date;
   @CreateDateColumn({ name: 'created_at' }) createdAt!: Date;
   @UpdateDateColumn({ name: 'updated_at' }) updatedAt!: Date;

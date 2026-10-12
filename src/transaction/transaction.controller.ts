@@ -2,10 +2,12 @@ import { Body, Controller, ForbiddenException, Get, Param, Post, Put, Req, UseGu
 import { AuthGuard } from '@nestjs/passport';
 import { ApiResponse } from '../common/api-response.interface';
 import { AdminCaptureDto } from './dto/admin-capture.dto';
-import { ClientReferenceDto } from './dto/client-reference.dto';
 import { CreateTransactionDto } from './dto/create-transaction.dto';
-import { RejectTransactionDto } from './dto/reject-transaction.dto';
 import { UpdateTransactionDto } from './dto/update-transaction.dto';
+import { ResolveClaimDto } from './dto/resolve-claim.dto';
+import { AdminCaptureHeartbeatDto } from './dto/admin-capture-heartbeat.dto';
+import { AdminCaptureOverrideDto } from './dto/admin-capture-override.dto';
+import { ResolveCaptureReconciliationDto } from './dto/resolve-capture-reconciliation.dto';
 import { TransactionMapper } from './mappers/transaction.mapper';
 import { TransactionService } from './transaction.service';
 
@@ -27,8 +29,56 @@ export class TransactionController {
   @Post('admin-capture')
   async processAdminCapture(@Body() body: AdminCaptureDto, @Req() req: any): Promise<ApiResponse> {
     this.assertAdmin(req);
-    const result = await this.service.processAdminCapture(body);
-    return { data: result, message: result.matched ? 'Paiement associé à une transaction' : 'Aucune transaction correspondante', status: 200 };
+    const result = await this.service.processAdminCapture(body, Number(req.user.userId));
+    return {
+      data: result,
+      message: result.message ?? (result.matched ? 'Paiement associé à une transaction' : 'Aucune transaction correspondante'),
+      status: 200,
+    };
+  }
+
+  @Get('capture/status')
+  async captureStatus(@Req() req: any): Promise<ApiResponse> {
+    const capture = await this.service.getCaptureStatus();
+    return {
+      data: req.user.role === 'ADMIN' ? capture : { available: capture.available },
+      message: 'État de la capture des paiements',
+      status: 200,
+    };
+  }
+
+  @Post('capture/heartbeat')
+  async captureHeartbeat(@Body() body: AdminCaptureHeartbeatDto, @Req() req: any): Promise<ApiResponse> {
+    this.assertAdmin(req);
+    return { data: await this.service.captureHeartbeat(Number(req.user.userId), body), message: 'État de capture enregistré', status: 200 };
+  }
+
+  @Post('capture/manual-override')
+  async setCaptureOverride(@Body() body: AdminCaptureOverrideDto, @Req() req: any): Promise<ApiResponse> {
+    this.assertAdmin(req);
+    return {
+      data: await this.service.setCaptureManualOverride(Number(req.user.userId), body.enabled),
+      message: body.enabled ? 'Ouverture manuelle des dépôts activée' : 'Ouverture manuelle désactivée',
+      status: 200,
+    };
+  }
+
+  @Post(':id/capture-reconcile')
+  async resolveCaptureReconciliation(
+    @Param('id') id: string,
+    @Body() body: ResolveCaptureReconciliationDto,
+    @Req() req: any,
+  ): Promise<ApiResponse> {
+    this.assertAdmin(req);
+    const transaction = await this.service.resolveCaptureReconciliation(id, Number(req.user.userId), body);
+    return { data: this.mapper.toResponse(transaction), message: 'Dépôt rapproché manuellement', status: 200 };
+  }
+
+  @Post(':id/withdrawal/validate')
+  async validateManualWithdrawal(@Param('id') id: string, @Req() req: any): Promise<ApiResponse> {
+    this.assertAdmin(req);
+    const transaction = await this.service.validateManualWithdrawal(id, Number(req.user.userId));
+    return { data: this.mapper.toResponse(transaction), message: 'Retrait payé et validé', status: 200 };
   }
 
   @Get()
@@ -62,44 +112,27 @@ export class TransactionController {
     return { data: this.mapper.toResponse(transaction), message: 'Transaction créée', status: 201 };
   }
 
-  @Post(':id/client-reference')
-  async reportClientReference(
-    @Param('id') id: string,
-    @Body() body: ClientReferenceDto,
-    @Req() req: any,
-  ): Promise<ApiResponse> {
-    const transaction = await this.service.reportClientReference(id, Number(req.user.userId), body);
-    return { data: this.mapper.toResponse(transaction), message: 'Référence reçue, vérification en cours', status: 200 };
-  }
-
-  @Post(':id/proof')
-  async submitProof(@Param('id') id: string, @Body('preuveFichier') path: string, @Req() req: any): Promise<ApiResponse> {
-    const transaction = await this.service.submitProof(id, Number(req.user.userId), path);
-    return { data: this.mapper.toResponse(transaction), message: 'Preuve envoyée', status: 200 };
-  }
-
   @Post(':id/cancel')
   async cancel(@Param('id') id: string, @Req() req: any): Promise<ApiResponse> {
     const transaction = await this.service.cancel(id, Number(req.user.userId));
     return { data: this.mapper.toResponse(transaction), message: 'Transaction annulée', status: 200 };
   }
 
-  @Post(':id/validate')
-  async validateManually(@Param('id') id: string, @Req() req: any): Promise<ApiResponse> {
-    this.assertAdmin(req);
-    const transaction = await this.service.validateManually(id, Number(req.user.userId));
-    return { data: this.mapper.toResponse(transaction), message: 'Transaction validée', status: 200 };
+  @Post(':id/claim')
+  async claimRejected(@Param('id') id: string, @Req() req: any): Promise<ApiResponse> {
+    const transaction = await this.service.claimRejected(id, Number(req.user.userId));
+    return { data: this.mapper.toResponse(transaction), message: 'Réclamation envoyée', status: 200 };
   }
 
-  @Post(':id/reject')
-  async reject(
+  @Post(':id/claim/resolve')
+  async resolveClaim(
     @Param('id') id: string,
-    @Body() body: RejectTransactionDto,
+    @Body() body: ResolveClaimDto,
     @Req() req: any,
   ): Promise<ApiResponse> {
     this.assertAdmin(req);
-    const transaction = await this.service.reject(id, Number(req.user.userId), body);
-    return { data: this.mapper.toResponse(transaction), message: 'Transaction rejetée', status: 200 };
+    const transaction = await this.service.resolveClaim(id, Number(req.user.userId), body);
+    return { data: this.mapper.toResponse(transaction), message: 'Réclamation traitée', status: 200 };
   }
 
   @Put(':id')

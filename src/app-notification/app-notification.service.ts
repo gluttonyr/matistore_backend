@@ -25,6 +25,19 @@ export class AppNotificationService {
     return notifications.map((notification) => this.toResponse(notification));
   }
 
+  async createForUser(userId: number, title: string, body: string) {
+    const notification = await this.notificationRepository.save(
+      this.notificationRepository.create({
+        title,
+        body,
+        user: { id: userId } as any,
+        createdBy: 'system:transaction',
+        updatedBy: 'system:transaction',
+      }),
+    );
+    return this.toResponse(notification);
+  }
+
   async broadcast(dto: BroadcastAppNotificationDto, adminId: number) {
     const title = typeof dto?.title === 'string' ? dto.title.trim() : '';
     const body = typeof dto?.body === 'string' ? dto.body.trim() : '';
@@ -58,15 +71,22 @@ export class AppNotificationService {
     }
 
     const tokens = await this.pushDeviceService.findActiveTokensForUsers();
-    await this.pushNotificationService.sendToTokens(
+    const delivery = await this.pushNotificationService.sendToTokens(
       tokens,
       title,
       body,
       { type: 'ADMIN_BROADCAST' },
       imageUrl,
     );
+    await this.pushDeviceService.deactivateTokens(delivery.invalidTokens);
 
-    return { recipientCount: tokens.length, storedCount: recipientIds.length };
+    return {
+      recipientCount: delivery.recipientCount,
+      attemptedCount: delivery.attemptedCount,
+      deliveredCount: delivery.deliveredCount,
+      failedCount: delivery.failedCount,
+      storedCount: recipientIds.length,
+    };
   }
 
   private toResponse(notification: AppNotification) {

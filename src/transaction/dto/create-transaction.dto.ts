@@ -8,6 +8,4 @@ export class CreateTransactionDto {
   @IsOptional() @IsString() numeroTelephone?: string;
   @IsOptional() @IsString() compteDestinataire?: string;
   @IsOptional() @IsString() codeRetrait?: string;
-  @IsOptional() @IsString() referenceClient?: string;
-  @IsOptional() @IsString() notificationBruteClient?: string;
 }

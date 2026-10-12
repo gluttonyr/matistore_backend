@@ -8,6 +8,7 @@ export class TransactionMapper {
   toResponse(entity: Transaction): TransactionResponseDto {
     const response = plainToInstance(TransactionResponseDto, entity, { excludeExtraneousValues: true });
     response.userId = entity.user?.id;
+    response.userName = entity.user ? `${entity.user.prenom ?? ''} ${entity.user.nom ?? ''}`.trim() : undefined;
     response.valideParId = entity.validePar?.id;
     return response;
   }

@@ -66,6 +66,8 @@ async handleConnection(client: Socket) {
 
     const user = await this.utilisateurService.findUserById(userId);
     client.data.role = user?.role; // ← nécessaire pour distinguer admin/user
+    client.join(`user:${userId}`);
+    if (user?.role === UserRole.ADMIN) client.join('admins');
 
     this.presenceService.addConnection(userId, client.id);
     this.server.emit('userStatusChanged', { userId, online: true });
@@ -73,6 +75,27 @@ async handleConnection(client: Socket) {
   } catch {
     client.disconnect();
   }
+}
+
+emitTransactionStatusChanged(transaction: {
+  trackingId: string;
+  user: { id: number };
+  type: string;
+  statut: string;
+  montant: number;
+  updatedAt: Date;
+}) {
+  if (!this.server) return;
+  const payload = {
+    transactionId: transaction.trackingId,
+    userId: transaction.user.id,
+    type: transaction.type,
+    status: transaction.statut,
+    amount: transaction.montant,
+    updatedAt: transaction.updatedAt,
+  };
+  this.server.to(`user:${transaction.user.id}`).emit('transactionStatusChanged', payload);
+  this.server.to('admins').emit('transactionStatusChanged', payload);
 }
 
 handleDisconnect(client: Socket) {

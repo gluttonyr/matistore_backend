@@ -11,5 +11,6 @@ import { AppNotification } from './entities/app-notification.entity';
   imports: [TypeOrmModule.forFeature([AppNotification]), UtilisateurModule, PushDeviceModule, NotificationsModule],
   controllers: [AppNotificationController],
   providers: [AppNotificationService],
+  exports: [AppNotificationService],
 })
 export class AppNotificationModule {}

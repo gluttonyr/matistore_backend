@@ -8,9 +8,10 @@ import { UserMapper } from './mappers/user.mapper';
 import { DiscussionModule } from 'src/discussion/discussion.module';
 import { DiscussionService } from 'src/discussion/discussion.service';
 import { DiscussionRepository } from 'src/discussion/discussion.repository';
+import { UploadModule } from 'src/uploads/UploadModule';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([User]),forwardRef(() => DiscussionModule),],
+  imports: [TypeOrmModule.forFeature([User]), forwardRef(() => DiscussionModule), UploadModule],
   providers: [UtilisateurService, UserRepository,UserMapper],
   controllers: [UtilisateurController],
   exports: [UtilisateurService,UserMapper],

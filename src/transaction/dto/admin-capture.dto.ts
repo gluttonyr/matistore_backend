@@ -9,13 +9,14 @@ export class AdminCaptureDto {
   @Min(1)
   montant!: number;
 
+  @IsInt()
+  @IsOptional()
+  @Min(0)
+  notificationPostedAt?: number;
+
   @IsString()
   @IsNotEmpty()
-  referencePaiement!: string;
-
-  @IsOptional()
-  @IsString()
-  numeroTelephoneClient?: string;
+  numeroTelephoneClient!: string;
 
   @IsString()
   @IsNotEmpty()
@@ -24,4 +25,8 @@ export class AdminCaptureDto {
   @IsOptional()
   @IsString()
   packageNotification?: string;
+
+  @IsOptional()
+  @IsString()
+  titreNotification?: string;
 }

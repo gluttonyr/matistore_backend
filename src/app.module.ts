@@ -37,6 +37,9 @@ import { TransactionModule } from './transaction/transaction.module';
 import { Transaction } from './transaction/entities/transaction.entity';
 import { AppNotification } from './app-notification/entities/app-notification.entity';
 import { AppNotificationModule } from './app-notification/app-notification.module';
+import { ServculModule } from './servcul/servcul.module';
+import { AdminCaptureDevice } from './transaction/entities/admin-capture-device.entity';
+import { AdminCaptureState } from './transaction/entities/admin-capture-state.entity';
 
 @Module({
   imports: [
@@ -68,6 +71,8 @@ import { AppNotificationModule } from './app-notification/app-notification.modul
       Operateur,
       Categorie,
       Transaction,
+      AdminCaptureDevice,
+      AdminCaptureState,
       AppNotification,
     ],
 
@@ -95,6 +100,7 @@ import { AppNotificationModule } from './app-notification/app-notification.modul
     NotificationsModule,
     TransactionModule,
     AppNotificationModule,
+    ServculModule,
   ],
   controllers: [AppController],
   providers: [AppService],
