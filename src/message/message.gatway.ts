@@ -79,6 +79,7 @@ async handleConnection(client: Socket) {
 
 emitTransactionStatusChanged(transaction: {
   trackingId: string;
+  discussionTrackingId?: string;
   user: { id: number };
   type: string;
   statut: string;
@@ -96,6 +97,12 @@ emitTransactionStatusChanged(transaction: {
   };
   this.server.to(`user:${transaction.user.id}`).emit('transactionStatusChanged', payload);
   this.server.to('admins').emit('transactionStatusChanged', payload);
+  if (transaction.discussionTrackingId) {
+    this.server.to('admins').emit('discussionUpdated', {
+      discussionId: transaction.discussionTrackingId,
+      lastMessageAt: transaction.updatedAt,
+    });
+  }
 }
 
 handleDisconnect(client: Socket) {
@@ -266,7 +273,7 @@ async handleGetDiscussionClientStatus(@MessageBody() discussionId: string) {
         .to(payload.discussionId)
         .emit('newMessage', responseMessage);
 
-      this.server.emit('discussionUpdated', {
+      this.server.to('admins').emit('discussionUpdated', {
         discussionId: payload.discussionId,
         lastMessageAt: new Date(),
       });

@@ -60,7 +60,7 @@ export class DiscussionMapper extends BaseMapper<Discussion, DiscussionResponseD
       response.username = "";
     }
 
-    // messages non lus envoyés par un non-admin, dans les messages déjà chargés (findAll fait leftJoinAndSelect('discussion.messages', ...))
+    // Les listes résumées injectent le compteur calculé en base par le contrôleur.
     response.unreadCount = entity.messages?.filter(
       (m) => !m.lu && m.sender?.role !== UserRole.ADMIN
     ).length ?? 0;

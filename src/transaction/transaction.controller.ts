@@ -1,4 +1,4 @@
-import { Body, Controller, ForbiddenException, Get, Param, Post, Put, Req, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, ForbiddenException, Get, Param, Post, Put, Query, Req, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiResponse } from '../common/api-response.interface';
 import { AdminCaptureDto } from './dto/admin-capture.dto';
@@ -11,6 +11,7 @@ import { ResolveCaptureReconciliationDto } from './dto/resolve-capture-reconcili
 import { RejectTransactionDto } from './dto/reject-transaction.dto';
 import { TransactionMapper } from './mappers/transaction.mapper';
 import { TransactionService } from './transaction.service';
+import { TransactionStatus, TransactionType } from './entities/transaction.entity';
 
 @Controller('transactions')
 @UseGuards(AuthGuard('jwt'))
@@ -18,13 +19,56 @@ export class TransactionController {
   constructor(private readonly service: TransactionService, private readonly mapper: TransactionMapper) {}
 
   @Get('admin')
-  async findAllForAdmin(@Req() req: any): Promise<ApiResponse> {
+  async findAllForAdmin(
+    @Req() req: any,
+    @Query('page') pageQuery?: string,
+    @Query('limit') limitQuery?: string,
+    @Query('search') search = '',
+    @Query('type') typeQuery?: string,
+    @Query('status') statusQuery?: string,
+    @Query('discussionId') discussionId?: string,
+  ): Promise<ApiResponse> {
     this.assertAdmin(req);
+    if (pageQuery === undefined && limitQuery === undefined) {
+      return {
+        data: this.mapper.toResponseList(await this.service.findAllForAdmin()),
+        message: 'Liste des transactions',
+        status: 200,
+      };
+    }
+
+    const page = Math.max(1, Number.parseInt(pageQuery ?? '1', 10) || 1);
+    const limit = Math.min(50, Math.max(1, Number.parseInt(limitQuery ?? '25', 10) || 25));
+    const type = typeQuery && Object.values(TransactionType).includes(typeQuery as TransactionType)
+      ? typeQuery as TransactionType
+      : undefined;
+    const status = statusQuery && Object.values(TransactionStatus).includes(statusQuery as TransactionStatus)
+      ? statusQuery as TransactionStatus
+      : undefined;
+    if (typeQuery && !type) throw new BadRequestException('Type de transaction invalide');
+    if (statusQuery && !status) throw new BadRequestException('Statut de transaction invalide');
+    const result = await this.service.findAdminPage(page, limit, { search, type, status, discussionId });
     return {
-      data: this.mapper.toResponseList(await this.service.findAllForAdmin()),
+      data: {
+        items: this.mapper.toResponseList(result.transactions),
+        total: result.total,
+        page,
+        limit,
+        hasMore: page * limit < result.total,
+        counts: result.counts,
+      },
       message: 'Liste des transactions',
       status: 200,
     };
+  }
+
+  @Get('updated-since')
+  async countUpdatedSince(@Req() req: any, @Query('after') after?: string): Promise<ApiResponse> {
+    if (!after || Number.isNaN(new Date(after).getTime())) {
+      throw new BadRequestException('Date de consultation invalide');
+    }
+    const count = await this.service.countUpdatedSince(Number(req.user.userId), new Date(after));
+    return { data: { count, hasUpdates: count > 0 }, message: 'Transactions modifiées', status: 200 };
   }
 
   @Post('admin-capture')
@@ -94,16 +138,48 @@ export class TransactionController {
   }
 
   @Get()
-  async findMine(@Req() req: any): Promise<ApiResponse> {
-    if (req.user.role === 'ADMIN') {
+  async findMine(
+    @Req() req: any,
+    @Query('page') pageQuery?: string,
+    @Query('limit') limitQuery?: string,
+  ): Promise<ApiResponse> {
+    if (pageQuery === undefined && limitQuery === undefined) {
+      const transactions = req.user.role === 'ADMIN'
+        ? await this.service.findAllForAdmin()
+        : await this.service.findByUser(Number(req.user.userId));
       return {
-        data: this.mapper.toResponseList(await this.service.findAllForAdmin()),
+        data: this.mapper.toResponseList(transactions),
         message: 'Liste des transactions',
         status: 200,
       };
     }
+
+    const page = Math.max(1, Number.parseInt(pageQuery ?? '1', 10) || 1);
+    const limit = Math.min(50, Math.max(1, Number.parseInt(limitQuery ?? '25', 10) || 25));
+    if (req.user.role === 'ADMIN') {
+      const result = await this.service.findAdminPage(page, limit, {});
+      return {
+        data: {
+          items: this.mapper.toResponseList(result.transactions),
+          total: result.total,
+          page,
+          limit,
+          hasMore: page * limit < result.total,
+          counts: result.counts,
+        },
+        message: 'Liste des transactions',
+        status: 200,
+      };
+    }
+    const result = await this.service.findUserPage(Number(req.user.userId), page, limit);
     return {
-      data: this.mapper.toResponseList(await this.service.findByUser(Number(req.user.userId))),
+      data: {
+        items: this.mapper.toResponseList(result.transactions),
+        total: result.total,
+        page,
+        limit,
+        hasMore: page * limit < result.total,
+      },
       message: 'Liste des transactions',
       status: 200,
     };

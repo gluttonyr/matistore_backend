@@ -1,7 +1,8 @@
-import { IsNotEmpty, IsString } from 'class-validator';
+import { IsOptional, IsString, MaxLength } from 'class-validator';
 
 export class RejectTransactionDto {
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  motif!: string;
+  @MaxLength(1000)
+  motif?: string;
 }

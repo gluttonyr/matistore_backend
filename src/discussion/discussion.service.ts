@@ -52,6 +52,25 @@ getDiscussionByUser(userId: string) {
       .getMany();
   }
 
+  // Contrat historique non paginé, sans charger l'historique des messages.
+  async findAll() {
+    const discussions = await this.discussionRepository
+      .createQueryBuilder('discussion')
+      .leftJoinAndSelect('discussion.participants', 'participant')
+      .leftJoinAndSelect('participant.user', 'user')
+      .orderBy('discussion.lastMessageAt', 'DESC')
+      .where('discussion.type != :type', { type: DiscussionType.FORUM })
+      .getMany();
+
+    const unreadCounts = await this.discussionRepository.countUnreadByDiscussionForAdmin(
+      discussions.map((discussion) => discussion.trackingId),
+    );
+    const unreadByDiscussion = new Map(
+      unreadCounts.map((row) => [row.discussionId, Number(row.unreadCount)]),
+    );
+    return { discussions, unreadByDiscussion };
+  }
+
   async getDepotRetraitDiscussion(userId: number): Promise<Discussion> {
     const discussion = await this.discussionRepository
       .createQueryBuilder('discussion')
@@ -71,18 +90,69 @@ getDiscussionByUser(userId: string) {
     return this.discussionRepository.countByType(type);
   }
 
-  findWithUnreadForAdmin() {
-    return this.discussionRepository.findWithUnreadForAdmin();
+  async findWithUnreadForAdmin() {
+    const discussions = await this.discussionRepository.findWithUnreadForAdmin();
+    const unreadCounts = await this.discussionRepository.countUnreadByDiscussionForAdmin(
+      discussions.map((discussion) => discussion.trackingId),
+    );
+    const unreadByDiscussion = new Map(unreadCounts.map((row) => [row.discussionId, Number(row.unreadCount)]));
+    return { discussions, unreadByDiscussion };
+  }
+
+  findAdminPage(page: number, limit: number, search: string, category: string) {
+    return this.discussionRepository.findAdminPage(page, limit, search, category);
+  }
+
+  async getAdminUserProfile(discussionId: string) {
+    const discussion = await this.discussionRepository.findOne({
+      where: { trackingId: discussionId },
+      select: { id: true },
+    });
+    if (!discussion) throw new NotFoundException('Discussion introuvable');
+
+    const row = await this.discussionRepository.manager
+      .getRepository(DiscussionParticipant)
+      .createQueryBuilder('participant')
+      .innerJoinAndSelect('participant.user', 'user')
+      .innerJoin('participant.discussion', 'discussion')
+      .where('discussion.id = :discussionId', { discussionId: discussion.id })
+      .andWhere('participant.isAdmin = false')
+      .select([
+        'participant.id',
+        'user.id',
+        'user.trackingId',
+        'user.nom',
+        'user.prenom',
+        'user.username',
+        'user.email',
+        'user.telephone',
+        'user.active',
+        'user.createdAt',
+      ])
+      .getOne();
+
+    if (!row?.user) throw new NotFoundException('Profil utilisateur introuvable');
+    const user = row.user;
+    return {
+      trackingId: user.trackingId,
+      nom: user.nom,
+      prenom: user.prenom,
+      username: user.username,
+      email: user.email,
+      telephone: user.telephone,
+      active: user.active,
+      createdAt: user.createdAt,
+    };
   }
 
   async countUnreadForAdmin(): Promise<number> {
-    const discussions = await this.discussionRepository.findWithUnreadForAdmin();
-    return discussions.reduce((sum, d) => sum + (d.messages?.length ?? 0), 0);
+    const result = await this.discussionRepository.countUnreadMessagesForAdmin();
+    return Number(result?.count ?? 0);
   }
 
   async countUnreadForUser(userId: number): Promise<number> {
-    const discussions = await this.discussionRepository.findWithUnreadForUser(userId);
-    return discussions.reduce((sum, d) => sum + (d.messages?.length ?? 0), 0);
+    const result = await this.discussionRepository.countUnreadMessagesForUser(userId);
+    return Number(result?.count ?? 0);
   }
 
   async getUserByDiscussionId(discussionId: string): Promise<User> {
@@ -139,24 +209,10 @@ getDiscussionByUser(userId: string) {
 
   }
 
-  findAll() {
-    
-    return this.discussionRepository
-      .createQueryBuilder('discussion')
-      .leftJoinAndSelect('discussion.participants', 'participant')
-      .leftJoinAndSelect('participant.user', 'user')
-      .leftJoinAndSelect('discussion.messages', 'messages')
-      .leftJoinAndSelect('messages.sender', 'sender')
-      .orderBy('discussion.lastMessageAt', 'DESC')
-      .where('discussion.type != :type', { type: DiscussionType.FORUM })
-      .getMany();
-  }
-
   findById(id: string) {
     return this.discussionRepository
       .createQueryBuilder('discussion')
       .leftJoinAndSelect('discussion.participants', 'participants')
-      .leftJoinAndSelect('discussion.messages', 'messages')
       .where('discussion.trackingId = :id', { id })
       .getOne();
   }

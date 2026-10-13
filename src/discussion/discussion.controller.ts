@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, ForbiddenException, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, ForbiddenException, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { DiscussionService } from './discussion.service';
 import { ApiResponse } from '../common/api-response.interface';
 import { DiscussionType } from './entities/discussion.entity';
@@ -13,7 +13,13 @@ export class DiscussionController {
   constructor(private readonly discussionService: DiscussionService,private readonly utilisateurService:UtilisateurService,private readonly discussionMapper: DiscussionMapper) {}
 
   @Get()
-  async findAll(@Req() req: any): Promise<ApiResponse> {
+  async findAll(
+    @Req() req: any,
+    @Query('page') pageQuery?: string,
+    @Query('limit') limitQuery?: string,
+    @Query('search') searchQuery = '',
+    @Query('category') category = 'all',
+  ): Promise<ApiResponse> {
     const userId = req.user.userId;
     const user = await this.utilisateurService.findUserById(userId);
     if(user?.role!==UserRole.ADMIN){
@@ -21,10 +27,51 @@ export class DiscussionController {
       'Vous n\'êtes pas autorisé à accéder à cette ressource',
     );
     }
-    const discussions = await this.discussionService.findAll();
-    const responseDiscussions = await this.discussionMapper.toResponseList(discussions, true);
 
-    return { data: responseDiscussions, message: 'Liste des discussions', status: 200 };
+    // Les anciennes versions mobiles n'envoient pas page/limit et attendent
+    // encore une liste dans `data`. Le format paginé est réservé aux clients
+    // qui demandent explicitement une page. L'aperçu et les non-lus sont lus
+    // sans charger les messages de chaque discussion.
+    if (pageQuery === undefined && limitQuery === undefined) {
+      const { discussions, unreadByDiscussion } = await this.discussionService.findAll();
+      const items = await this.discussionMapper.toResponseList(discussions, true);
+      items.forEach((item) => {
+        item.unreadCount = unreadByDiscussion.get(item.trackingId) ?? 0;
+      });
+      return { data: items, message: 'Liste des discussions', status: 200 };
+    }
+
+    const page = Math.max(1, Number.parseInt(pageQuery ?? '1', 10) || 1);
+    const limit = Math.min(50, Math.max(1, Number.parseInt(limitQuery ?? '25', 10) || 25));
+    const result = await this.discussionService.findAdminPage(page, limit, searchQuery, category);
+    const items = await this.discussionMapper.toResponseList(result.discussions);
+    items.forEach((item) => {
+      item.unreadCount = result.unreadByDiscussion.get(item.trackingId) ?? 0;
+    });
+
+    return {
+      data: {
+        items,
+        total: result.total,
+        page,
+        limit,
+        hasMore: page * limit < result.total,
+        counts: result.counts,
+      },
+      message: 'Liste des discussions',
+      status: 200,
+    };
+  }
+
+  @Get(':id/profile')
+  async getAdminUserProfile(@Param('id') id: string, @Req() req: any): Promise<ApiResponse> {
+    const userId = req.user.userId;
+    const user = await this.utilisateurService.findUserById(userId);
+    if (user?.role !== UserRole.ADMIN) {
+      throw new ForbiddenException('Vous n\'êtes pas autorisé à accéder à cette ressource');
+    }
+    const profile = await this.discussionService.getAdminUserProfile(id);
+    return { data: profile, message: 'Profil utilisateur', status: 200 };
   }
 
   @Get(':id')
@@ -52,10 +99,10 @@ export class DiscussionController {
         'Vous n\'êtes pas autorisé à accéder à cette ressource',
       );
     }
-    const discussions = await this.discussionService.findWithUnreadForAdmin();
+    const { discussions, unreadByDiscussion } = await this.discussionService.findWithUnreadForAdmin();
     const data = discussions.map((discussion) => {
-      const response = this.discussionMapper.toResponse(discussion, true);
-      response.unreadCount = discussion.messages?.length ?? 0;
+      const response = this.discussionMapper.toResponse(discussion);
+      response.unreadCount = unreadByDiscussion.get(discussion.trackingId) ?? 0;
       return response;
     });
     return { data, message: 'Discussions non lues', status: 200 };

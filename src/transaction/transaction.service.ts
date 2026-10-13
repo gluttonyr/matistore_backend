@@ -159,8 +159,6 @@ export class TransactionService implements OnModuleInit, OnModuleDestroy {
     return transaction;
   }
 
-  findByUser(userId: number) { return this.repository.findByUser(userId); }
-
   async validateManualWithdrawal(id: string, adminId: number) {
     await this.assertAdmin(adminId);
     const transaction = await this.repository.validateManualWithdrawal(id, adminId);
@@ -175,15 +173,14 @@ export class TransactionService implements OnModuleInit, OnModuleDestroy {
 
   async rejectUnvalidated(id: string, adminId: number, dto: RejectTransactionDto) {
     await this.assertAdmin(adminId);
-    const motif = dto.motif.trim();
-    if (!motif) throw new BadRequestException('Un motif est requis pour refuser la transaction');
+    const motif = dto?.motif?.trim() || undefined;
     const transaction = await this.repository.rejectUnvalidatedTransaction(id, adminId, motif);
     if (!transaction) {
       throw new BadRequestException('Une transaction validée ne peut plus être refusée');
     }
     await this.postSystemMessage(
       transaction,
-      `❌ Votre ${transaction.type === TransactionType.DEPOT ? 'dépôt' : 'retrait'} a été refusé par un administrateur.\nMotif : ${motif}`,
+      `❌ Nous avons refusé votre ${transaction.type === TransactionType.DEPOT ? 'dépôt' : 'retrait'}.${motif ? `\nMotif : ${motif}` : ''}`,
     );
     await this.notifyStatusChange(transaction);
     return transaction;
@@ -224,11 +221,34 @@ export class TransactionService implements OnModuleInit, OnModuleDestroy {
     return transaction;
   }
 
+  findAdminPage(page: number, limit: number, filters: {
+    search?: string; type?: TransactionType; status?: TransactionStatus; discussionId?: string;
+  }) {
+    return this.repository.findAdminPage(page, limit, filters);
+  }
+
+  // Compatibilité avec les anciennes applications qui ne demandent pas de page.
   findAllForAdmin() {
     return this.repository.find({
       relations: { user: true, validePar: true },
       order: { createdAt: 'DESC' },
     });
+  }
+
+  findByUser(userId: number) {
+    return this.repository.find({
+      where: { user: { id: userId } },
+      relations: { user: true, validePar: true },
+      order: { createdAt: 'DESC' },
+    });
+  }
+
+  findUserPage(userId: number, page: number, limit: number) {
+    return this.repository.findUserPage(userId, page, limit);
+  }
+
+  countUpdatedSince(userId: number, since: Date) {
+    return this.repository.countUpdatedSince(userId, since);
   }
 
   async findById(id: string, userId?: number) {
@@ -434,7 +454,7 @@ export class TransactionService implements OnModuleInit, OnModuleDestroy {
       saved,
       '✅ Paiement reçu. Nous créditons votre compte 1XBET.',
     );
-    this.emitTransactionStatusChange(saved);
+    await this.notifyStatusChange(saved);
     try {
       const completed = await this.repository.completeAutomaticTransaction(
         trackingId,
@@ -720,7 +740,7 @@ export class TransactionService implements OnModuleInit, OnModuleDestroy {
       case TransactionStatus.VALIDEE: return transaction.type === TransactionType.DEPOT
         ? `Dépôt validé. Votre compte 1XBET a été crédité${transaction.montant > 0 ? ` de ${transaction.montant} FCFA` : ''}.`
         : `Retrait envoyé au numéro indiqué${transaction.montant > 0 ? ` (${transaction.montant} FCFA)` : ''}.`;
-      case TransactionStatus.REJETEE: return `${label} refusé. ${transaction.motifRejet ?? 'La vérification n’a pas abouti.'}`;
+      case TransactionStatus.REJETEE: return `Nous avons refusé votre ${label.toLowerCase()}.${transaction.motifRejet ? ` ${transaction.motifRejet}` : ''}`;
       case TransactionStatus.ANNULEE: return `${label} annulé.`;
     }
   }
@@ -741,7 +761,8 @@ export class TransactionService implements OnModuleInit, OnModuleDestroy {
   private async notifyStatusChange(transaction: Transaction) {
     this.emitTransactionStatusChange(transaction);
     const body = this.statusMessage(transaction);
-    if ((transaction.type === TransactionType.RETRAIT && transaction.statut === TransactionStatus.EN_ATTENTE_ADMIN)
+    if (transaction.statut === TransactionStatus.EN_VERIFICATION
+      || (transaction.type === TransactionType.RETRAIT && transaction.statut === TransactionStatus.EN_ATTENTE_ADMIN)
       || transaction.statut === TransactionStatus.EN_RECLAMATION
       || transaction.statut === TransactionStatus.VALIDEE
       || transaction.statut === TransactionStatus.REJETEE
@@ -790,7 +811,9 @@ export class TransactionService implements OnModuleInit, OnModuleDestroy {
             ? `${transaction.type === TransactionType.DEPOT ? 'Paiement' : 'Code de retrait'} à vérifier`
           : transaction.creditError
             ? `${transaction.type === TransactionType.DEPOT ? 'Dépôt' : 'Retrait'} en attente`
-            : 'MatiStore';
+            : transaction.statut === TransactionStatus.EN_VERIFICATION
+              ? transaction.type === TransactionType.DEPOT ? 'Paiement reçu' : 'Retrait en vérification'
+              : 'MatiStore';
       const adminTitle = transaction.type === TransactionType.RETRAIT && transaction.statut === TransactionStatus.EN_ATTENTE_ADMIN
         ? 'Retrait à envoyer au client'
         : transaction.statut === TransactionStatus.EN_RECLAMATION
@@ -816,6 +839,7 @@ export class TransactionService implements OnModuleInit, OnModuleDestroy {
   private emitTransactionStatusChange(transaction: Transaction) {
     this.messageGateway.emitTransactionStatusChanged({
       trackingId: transaction.trackingId,
+      discussionTrackingId: transaction.discussionTrackingId,
       user: transaction.user,
       type: transaction.type,
       statut: transaction.statut,
@@ -838,7 +862,7 @@ export class TransactionService implements OnModuleInit, OnModuleDestroy {
       return result;
     }
     if (transaction.statut === TransactionStatus.REJETEE) {
-      return `Votre ${transaction.type === TransactionType.DEPOT ? 'dépôt' : 'retrait'} a été refusé. ${transaction.motifRejet || 'La vérification n’a pas abouti.'}`;
+      return `Nous avons refusé votre ${transaction.type === TransactionType.DEPOT ? 'dépôt' : 'retrait'}.${transaction.motifRejet ? ` ${transaction.motifRejet}` : ''}`;
     }
     if (transaction.type === TransactionType.RETRAIT && transaction.statut === TransactionStatus.VALIDEE) {
       return `Retrait envoyé au numéro indiqué${transaction.montant > 0 ? ` (${transaction.montant} FCFA)` : ''}.`;

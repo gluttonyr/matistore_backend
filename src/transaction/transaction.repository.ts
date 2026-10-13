@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { DataSource, In, Repository } from 'typeorm';
+import { DataSource, In, MoreThan, Repository } from 'typeorm';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { Transaction, TransactionStatus, TransactionType, ValidationMethod } from './entities/transaction.entity';
 import { User } from '../utilisateur/entities/user.entity';
@@ -8,6 +8,71 @@ import { User } from '../utilisateur/entities/user.entity';
 export class TransactionRepository extends Repository<Transaction> {
   constructor(@InjectDataSource() dataSource: DataSource) { super(Transaction, dataSource.createEntityManager()); }
   findByTrackingId(trackingId: string) { return this.findOne({ where: { trackingId }, relations: { user: true, validePar: true } }); }
+
+  private pageQuery() {
+    return this.createQueryBuilder('transaction')
+      .leftJoinAndSelect('transaction.user', 'user')
+      .select([
+        'transaction.trackingId', 'transaction.type', 'transaction.statut', 'transaction.montant',
+        'transaction.operateur', 'transaction.numeroTelephone', 'transaction.compteDestinataire',
+        'transaction.codeRetrait', 'transaction.discussionTrackingId', 'transaction.referencePaiement',
+        'transaction.referenceClient', 'transaction.methodeValidation', 'transaction.preuveFichier',
+        'transaction.motifRejet', 'transaction.creditError', 'transaction.dateReclamation',
+        'transaction.dateTraitementReclamation', 'transaction.captureReconciliationRequired',
+        'transaction.dateValidation', 'transaction.createdAt', 'transaction.updatedAt',
+        'user.id', 'user.nom', 'user.prenom',
+      ]);
+  }
+
+  async findAdminPage(page: number, limit: number, filters: {
+    search?: string; type?: TransactionType; status?: TransactionStatus; discussionId?: string;
+  }) {
+    const query = this.pageQuery();
+    if (filters.discussionId) query.andWhere('transaction.discussionTrackingId = :discussionId', { discussionId: filters.discussionId });
+    if (filters.type) query.andWhere('transaction.type = :type', { type: filters.type });
+    if (filters.status) query.andWhere('transaction.statut = :status', { status: filters.status });
+    if (filters.search?.trim()) {
+      const search = `%${filters.search.trim().replace(/[\\%_]/g, '\\$&')}%`;
+      query.andWhere(
+        '(transaction.trackingId ILIKE :search OR user.nom ILIKE :search OR user.prenom ILIKE :search OR transaction.operateur ILIKE :search OR transaction.numeroTelephone ILIKE :search OR transaction.compteDestinataire ILIKE :search OR transaction.referencePaiement ILIKE :search)',
+        { search },
+      );
+    }
+
+    const [total, transactions] = await Promise.all([
+      query.clone().getCount(),
+      query
+        .orderBy("CASE WHEN transaction.statut = 'EN_RECLAMATION' THEN 1 ELSE 0 END", 'DESC')
+        .addOrderBy('transaction.captureReconciliationRequired', 'DESC')
+        .addOrderBy('transaction.updatedAt', 'DESC')
+        .skip((page - 1) * limit)
+        .take(limit)
+        .getMany(),
+    ]);
+    const [claimCount, reconciliationCount] = await Promise.all([
+      this.count({ where: { statut: TransactionStatus.EN_RECLAMATION } }),
+      this.count({ where: { captureReconciliationRequired: true } }),
+    ]);
+    return { transactions, total, counts: { claims: claimCount, captureReconciliation: reconciliationCount } };
+  }
+
+  async findUserPage(userId: number, page: number, limit: number) {
+    const query = this.pageQuery().andWhere('user.id = :userId', { userId });
+    const [transactions, total] = await Promise.all([
+      query.clone()
+        .orderBy('transaction.createdAt', 'DESC')
+        .addOrderBy('transaction.trackingId', 'DESC')
+        .skip((page - 1) * limit)
+        .take(limit)
+        .getMany(),
+      query.clone().getCount(),
+    ]);
+    return { transactions, total };
+  }
+
+  countUpdatedSince(userId: number, since: Date) {
+    return this.count({ where: { user: { id: userId }, updatedAt: MoreThan(since) } });
+  }
 
   markWithdrawalDebited(
     trackingId: string,
@@ -28,7 +93,7 @@ export class TransactionRepository extends Repository<Transaction> {
     });
   }
 
-  rejectUnvalidatedTransaction(trackingId: string, adminId: number, motif: string) {
+  rejectUnvalidatedTransaction(trackingId: string, adminId: number, motif?: string) {
     return this.manager.transaction(async (manager) => {
       const repository = manager.getRepository(Transaction);
       const transaction = await repository.findOne({
@@ -40,7 +105,7 @@ export class TransactionRepository extends Repository<Transaction> {
 
       const wasClaim = transaction.statut === TransactionStatus.EN_RECLAMATION;
       transaction.statut = TransactionStatus.REJETEE;
-      transaction.motifRejet = motif.trim();
+      transaction.motifRejet = motif?.trim() || null;
       transaction.dateValidation = new Date();
       transaction.validePar = { id: adminId } as User;
       transaction.creditError = null;
@@ -67,7 +132,6 @@ export class TransactionRepository extends Repository<Transaction> {
       return repository.save(transaction);
     });
   }
-  findByUser(userId: number) { return this.find({ where: { user: { id: userId } }, relations: { user: true, validePar: true }, order: { createdAt: 'DESC' } }); }
   findByConfirmedReference(referencePaiement: string) {
     return this.findOne({ where: { referencePaiement } });
   }
