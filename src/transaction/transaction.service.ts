@@ -637,8 +637,9 @@ export class TransactionService implements OnModuleInit, OnModuleDestroy {
       code: transaction.codeRetrait.trim(),
     });
     const payoutAmount = Number(payout.summa);
-    transaction.montant = payout.summa !== null && Number.isSafeInteger(payoutAmount) && payoutAmount > 0
-      ? payoutAmount
+    const absolutePayoutAmount = Math.abs(payoutAmount);
+    transaction.montant = payout.summa !== null && Number.isSafeInteger(absolutePayoutAmount) && absolutePayoutAmount > 0
+      ? absolutePayoutAmount
       : transaction.montant;
   }
 

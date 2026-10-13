@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { LessThan, Repository } from 'typeorm';
 import { PushNotificationService } from '../notifications/push-notification.service';
 import { PushDeviceService } from '../push-device/push-device.service';
 import { UtilisateurService } from '../utilisateur/utilisateur.service';
@@ -17,10 +17,27 @@ export class AppNotificationService {
     private readonly pushNotificationService: PushNotificationService,
   ) {}
 
-  async findForUser(userId: number) {
+  async findForUser(userId: number, pagination?: { limit: number; beforeId?: number }) {
+    if (pagination) {
+      const notifications = await this.notificationRepository.find({
+        where: pagination.beforeId === undefined
+          ? { user: { id: userId } }
+          : { user: { id: userId }, id: LessThan(pagination.beforeId) },
+        order: { id: 'DESC' },
+        take: pagination.limit + 1,
+      });
+      const hasMore = notifications.length > pagination.limit;
+      const items = notifications.slice(0, pagination.limit);
+      return {
+        items: items.map((notification) => this.toResponse(notification)),
+        hasMore,
+        nextCursor: hasMore ? items[items.length - 1]?.id ?? null : null,
+      };
+    }
+
     const notifications = await this.notificationRepository.find({
       where: { user: { id: userId } },
-      order: { createdAt: 'DESC' },
+      order: { createdAt: 'DESC', id: 'DESC' },
     });
     return notifications.map((notification) => this.toResponse(notification));
   }
