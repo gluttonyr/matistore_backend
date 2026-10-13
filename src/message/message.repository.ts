@@ -36,6 +36,18 @@ export class MessageRepository extends Repository<Message> {
     return query.getMany();
   }
 
+  findLatestByDiscussion(discussionId: string, limit: number) {
+    return this.createQueryBuilder('message')
+      .leftJoinAndSelect('message.discussion', 'discussion')
+      .leftJoinAndSelect('message.sender', 'sender')
+      .leftJoinAndSelect('message.reactions', 'reactions')
+      .where('discussion.trackingId = :discussionId', { discussionId })
+      .orderBy('message.createdAt', 'DESC')
+      .take(limit)
+      .getMany()
+      .then((messages) => messages.reverse());
+  }
+
   findById(id: string) {
     return this.findOne({
       where: { trackingId: id },

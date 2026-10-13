@@ -97,12 +97,8 @@ export class PushDeviceService {
     return this.pushDeviceRepository.findActiveByUser(userId);
   }
 
-  async deactivateByToken(token: string): Promise<void> {
-    const device = await this.pushDeviceRepository.findByToken(token);
-    if (device && device.active) {
-      device.active = false;
-      await this.pushDeviceRepository.save(device);
-    }
+  async deactivateByToken(token: string, userId: number): Promise<void> {
+    await this.pushDeviceRepository.deactivateByTokenForUser(token, userId);
   }
 
   async update(id: string, payload: Partial<PushDevice> | UpdatePushDeviceDto) {

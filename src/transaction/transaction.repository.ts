@@ -28,6 +28,13 @@ export class TransactionRepository extends Repository<Transaction> {
     search?: string; type?: TransactionType; status?: TransactionStatus; discussionId?: string;
   }) {
     const query = this.pageQuery();
+    // TypeORM turns joined pagination into a DISTINCT subquery. Keep the custom
+    // priority expression selected under an alias so the outer ORDER BY can
+    // reference a projected column instead of the inner table alias.
+    query.addSelect(
+      "CASE WHEN transaction.statut = 'EN_RECLAMATION' THEN 1 ELSE 0 END",
+      'claimPriority',
+    );
     if (filters.discussionId) query.andWhere('transaction.discussionTrackingId = :discussionId', { discussionId: filters.discussionId });
     if (filters.type) query.andWhere('transaction.type = :type', { type: filters.type });
     if (filters.status) query.andWhere('transaction.statut = :status', { status: filters.status });
@@ -42,7 +49,7 @@ export class TransactionRepository extends Repository<Transaction> {
     const [total, transactions] = await Promise.all([
       query.clone().getCount(),
       query
-        .orderBy("CASE WHEN transaction.statut = 'EN_RECLAMATION' THEN 1 ELSE 0 END", 'DESC')
+        .orderBy('claimPriority', 'DESC')
         .addOrderBy('transaction.captureReconciliationRequired', 'DESC')
         .addOrderBy('transaction.updatedAt', 'DESC')
         .skip((page - 1) * limit)

@@ -98,6 +98,8 @@ export class MessageService {
   private async notifyNewMessage(message: Message): Promise<void> {
     const isSenderAdmin = message.sender.role === UserRole.ADMIN;
     let tokens: string[];
+    let recipientTrackingIds: string[] | undefined;
+    let recipientRoles: UserRole[] | undefined;
 
     this.logger.log(JSON.stringify({
       event: 'push.prepare',
@@ -111,6 +113,9 @@ export class MessageService {
     if (isSenderAdmin) {
       // Admin écrit → notifier le(s) participant(s) client de la discussion
       const participantIds = await this.discussionService.getParticipantUserIds(
+        message.discussion.trackingId,
+      );
+      recipientTrackingIds = await this.discussionService.getParticipantTrackingIds(
         message.discussion.trackingId,
       );
       const devicesByUser = await Promise.all(
@@ -127,6 +132,7 @@ export class MessageService {
     } else {
       // Utilisateur écrit → notifier tous les admins
       tokens = await this.userService.getAdminPushTokens();
+      recipientRoles = [UserRole.ADMIN];
       this.logger.log(JSON.stringify({
         event: 'push.recipients.resolved',
         messageId: message.trackingId,
@@ -156,6 +162,8 @@ export class MessageService {
         discussionId: message.discussion.trackingId,
         discussionType: message.discussion.type,
         discussionStatus: message.discussion.statut,
+        ...(recipientTrackingIds ? { recipientTrackingIds } : {}),
+        ...(recipientRoles ? { recipientRoles } : {}),
       },
     );
 
@@ -167,7 +175,11 @@ export class MessageService {
 
 // dans MessageService, remplacer findByDiscussion existant par :
 
-async findByDiscussion(discussionId: string, before?: string) {
+async findByDiscussion(discussionId: string, before?: string, limit?: number) {
+  if (!before && limit) {
+    return this.messageRepository.findLatestByDiscussion(discussionId, limit);
+  }
+
   const refreshDays =
     (await this.parametreService.getValue(PARAMETRE_CODES.DISCUSSION_REFRESH)) ??
     DEFAULT_DISCUSSION_REFRESH_DAYS;

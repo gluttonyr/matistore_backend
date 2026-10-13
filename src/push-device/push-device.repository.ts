@@ -18,6 +18,16 @@ export class PushDeviceRepository extends Repository<PushDevice> {
     return this.findOne({ where: { token }, relations: { user: true } as any });
   }
 
+  async deactivateByTokenForUser(token: string, userId: number): Promise<void> {
+    await this.createQueryBuilder()
+      .update(PushDevice)
+      .set({ active: false })
+      .where('token = :token', { token })
+      .andWhere('user_id = :userId', { userId })
+      .andWhere('active = :active', { active: true })
+      .execute();
+  }
+
   findByUser(userId: number) {
     return this.find({
       where: { userId },

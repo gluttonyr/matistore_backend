@@ -51,13 +51,13 @@ export class PushDeviceController {
   }
 
   @Post('deactivate')
-async deactivate(@Body('token') token: string): Promise<ApiResponse> {
-  if (!token) {
-    throw new BadRequestException('Le token push est requis');
+  async deactivate(@Body('token') token: string, @Req() req: any): Promise<ApiResponse> {
+    if (!token) {
+      throw new BadRequestException('Le token push est requis');
+    }
+    await this.pushDeviceService.deactivateByToken(token, req.user.userId);
+    return { data: null, message: 'Appareil désactivé', status: 200 };
   }
-  await this.pushDeviceService.deactivateByToken(token);
-  return { data: null, message: 'Appareil désactivé', status: 200 };
-}
 
   @Delete(':id')
   async remove(@Param('id') id: string): Promise<ApiResponse> {

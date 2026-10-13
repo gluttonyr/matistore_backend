@@ -16,8 +16,12 @@ export class MessageController {
 async findByDiscussion(
   @Param('discussionId') discussionId: string,
   @Query('before') before?: string,
+  @Query('limit') limitQuery?: string,
 ): Promise<ApiResponse> {
-  const messages = await this.messageService.findByDiscussion(discussionId, before);
+  const limit = limitQuery === undefined
+    ? undefined
+    : Math.min(100, Math.max(1, Number.parseInt(limitQuery, 10) || 50));
+  const messages = await this.messageService.findByDiscussion(discussionId, before, limit);
   const responseMessages = await Promise.all(messages.map(message => this.messageMapper.toResponse(message)));
   return { data: responseMessages, message: 'Messages trouvés', status: 200 };
 }

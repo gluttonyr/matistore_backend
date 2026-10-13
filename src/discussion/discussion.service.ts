@@ -244,4 +244,17 @@ getDiscussionByUser(userId: string) {
 
   return discussion?.participants.map((p) => p.user.id) ?? [];
 }
+
+  async getParticipantTrackingIds(discussionId: string): Promise<string[]> {
+    const rows = await this.discussionRepository
+      .createQueryBuilder('discussion')
+      .innerJoin('discussion.participants', 'participants')
+      .innerJoin('participants.user', 'user')
+      .select('user.trackingId', 'trackingId')
+      .where('discussion.trackingId = :discussionId', { discussionId })
+      .andWhere('participants.isAdmin = :isAdmin', { isAdmin: false })
+      .getRawMany<{ trackingId: string }>();
+
+    return rows.map((row) => row.trackingId);
+  }
 }

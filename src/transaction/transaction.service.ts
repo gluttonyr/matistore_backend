@@ -799,6 +799,14 @@ export class TransactionService implements OnModuleInit, OnModuleDestroy {
         transactionType: transaction.type,
         userName,
       };
+      const clientData = {
+        ...data,
+        recipientTrackingIds: [transaction.user.trackingId],
+      };
+      const adminData = {
+        ...data,
+        recipientRoles: [UserRole.ADMIN],
+      };
       const clientTitle = transaction.statut === TransactionStatus.VALIDEE
         ? `${transaction.type === TransactionType.DEPOT ? 'Dépôt' : 'Retrait'} réussi`
         : transaction.statut === TransactionStatus.REJETEE
@@ -819,7 +827,7 @@ export class TransactionService implements OnModuleInit, OnModuleDestroy {
         : transaction.statut === TransactionStatus.EN_RECLAMATION
           ? 'Nouvelle réclamation'
           : 'MatiStore';
-      if (clientTokens.length) await this.pushNotificationService.sendToTokens(clientTokens, clientTitle, body, data);
+      if (clientTokens.length) await this.pushNotificationService.sendToTokens(clientTokens, clientTitle, body, clientData);
       if (adminTokens.length) {
         const adminBody = transaction.statut === TransactionStatus.EN_RECLAMATION
           ? `${userName || 'Un utilisateur'} réclame sa transaction.\n${this.claimChatMessage(transaction)}\n${this.transactionDetails(transaction)}`
@@ -828,7 +836,7 @@ export class TransactionService implements OnModuleInit, OnModuleDestroy {
           adminTokens,
           adminTitle,
           adminBody,
-          data,
+          adminData,
         );
       }
     } catch (error) {
