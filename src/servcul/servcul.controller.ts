@@ -23,36 +23,36 @@ export class ServculController {
     return { data, message: 'Joueur récupéré', status: 200 };
   }
 
-  @Post('test/deposit')
-  async testDeposit(@Body() body: unknown): Promise<ApiResponse> {
-    const payload = this.asBody(body);
-    const userId = this.parsePlayerId(payload.userId);
-    const amount = typeof payload.amount === 'number' ? payload.amount : Number(payload.amount);
-    if (!Number.isFinite(amount) || amount <= 0 || amount > 1_000_000_000_000) {
-      throw new BadRequestException('amount doit être un nombre positif inférieur ou égal à 1000000000000');
-    }
+  // @Post('test/deposit')
+  // async testDeposit(@Body() body: unknown): Promise<ApiResponse> {
+  //   const payload = this.asBody(body);
+  //   const userId = this.parsePlayerId(payload.userId);
+  //   const amount = typeof payload.amount === 'number' ? payload.amount : Number(payload.amount);
+  //   if (!Number.isFinite(amount) || amount <= 0 || amount > 1_000_000_000_000) {
+  //     throw new BadRequestException('amount doit être un nombre positif inférieur ou égal à 1000000000000');
+  //   }
 
-    const data = await this.servculService.addPlayerDeposit(userId, {
-      lng: 'ru',
-      summa: amount,
-    });
-    return { data, message: 'Dépôt Servcul exécuté', status: 200 };
-  }
+  //   const data = await this.servculService.addPlayerDeposit(userId, {
+  //     lng: 'ru',
+  //     summa: amount,
+  //   });
+  //   return { data, message: 'Dépôt Servcul exécuté', status: 200 };
+  // }
 
-  @Post('test/withdrawal')
-  async testWithdrawal(@Body() body: unknown): Promise<ApiResponse> {
-    const payload = this.asBody(body);
-    const userId = this.parsePlayerId(payload.userId);
-    if (typeof payload.code !== 'string' || !payload.code.trim()) {
-      throw new BadRequestException('code de retrait requis');
-    }
+  // @Post('test/withdrawal')
+  // async testWithdrawal(@Body() body: unknown): Promise<ApiResponse> {
+  //   const payload = this.asBody(body);
+  //   const userId = this.parsePlayerId(payload.userId);
+  //   if (typeof payload.code !== 'string' || !payload.code.trim()) {
+  //     throw new BadRequestException('code de retrait requis');
+  //   }
 
-    const data = await this.servculService.payoutPlayer(userId, {
-      lng: 'ru',
-      code: payload.code.trim(),
-    });
-    return { data, message: 'Retrait Servcul exécuté', status: 200 };
-  }
+  //   const data = await this.servculService.payoutPlayer(userId, {
+  //     lng: 'ru',
+  //     code: payload.code.trim(),
+  //   });
+  //   return { data, message: 'Retrait Servcul exécuté', status: 200 };
+  // }
 
   private asBody(value: unknown): Record<string, unknown> {
     if (!value || typeof value !== 'object' || Array.isArray(value)) {

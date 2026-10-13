@@ -165,7 +165,7 @@ export class TransactionService implements OnModuleInit, OnModuleDestroy {
     if (!transaction) throw new BadRequestException('Ce retrait n’attend pas une validation de paiement administrateur');
     await this.postSystemMessage(
       transaction,
-      `✅ Retrait envoyé au numéro indiqué${transaction.montant > 0 ? ` (${transaction.montant} FCFA)` : ''}.`,
+      `✅ Votre compte 1XBET a été débité${transaction.montant > 0 ? ` de ${transaction.montant} FCFA` : ''}. Le retrait a été envoyé au numéro indiqué.`,
     );
     await this.notifyStatusChange(transaction);
     return transaction;
@@ -740,7 +740,7 @@ export class TransactionService implements OnModuleInit, OnModuleDestroy {
       case TransactionStatus.EN_RECLAMATION: return `Nous vérifions votre réclamation concernant le ${label.toLowerCase()}.`;
       case TransactionStatus.VALIDEE: return transaction.type === TransactionType.DEPOT
         ? `Dépôt validé. Votre compte 1XBET a été crédité${transaction.montant > 0 ? ` de ${transaction.montant} FCFA` : ''}.`
-        : `Retrait envoyé au numéro indiqué${transaction.montant > 0 ? ` (${transaction.montant} FCFA)` : ''}.`;
+        : `Votre compte 1XBET a été débité${transaction.montant > 0 ? ` de ${transaction.montant} FCFA` : ''}. Le retrait a été envoyé au numéro indiqué.`;
       case TransactionStatus.REJETEE: return `Nous avons refusé votre ${label.toLowerCase()}.${transaction.motifRejet ? ` ${transaction.motifRejet}` : ''}`;
       case TransactionStatus.ANNULEE: return `${label} annulé.`;
     }
@@ -874,7 +874,7 @@ export class TransactionService implements OnModuleInit, OnModuleDestroy {
       return `Nous avons refusé votre ${transaction.type === TransactionType.DEPOT ? 'dépôt' : 'retrait'}.${transaction.motifRejet ? ` ${transaction.motifRejet}` : ''}`;
     }
     if (transaction.type === TransactionType.RETRAIT && transaction.statut === TransactionStatus.VALIDEE) {
-      return `Retrait envoyé au numéro indiqué${transaction.montant > 0 ? ` (${transaction.montant} FCFA)` : ''}.`;
+      return `Votre compte 1XBET a été débité${transaction.montant > 0 ? ` de ${transaction.montant} FCFA` : ''}. Le retrait a été envoyé au numéro indiqué.`;
     }
     if (transaction.statut === TransactionStatus.EN_ATTENTE_AUTO && transaction.type === TransactionType.DEPOT) {
       return 'Nous vérifions votre paiement.';
