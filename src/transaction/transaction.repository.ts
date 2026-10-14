@@ -230,6 +230,15 @@ export class TransactionRepository extends Repository<Transaction> {
     });
   }
 
+  async removeRejectedWithdrawal(trackingId: string) {
+    const result = await this.delete({
+      trackingId,
+      type: TransactionType.RETRAIT,
+      statut: TransactionStatus.EN_VERIFICATION,
+    });
+    return (result.affected ?? 0) > 0;
+  }
+
   markDepositAsVerified(
     trackingId: string,
     referencePaiement: string,

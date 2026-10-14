@@ -157,14 +157,11 @@ export class ServculService {
     }));
     if (
       returnedUserId !== userId
-      || typeof returnedName !== 'string'
-      || !returnedName.trim()
     ) {
       this.logger.warn(JSON.stringify({
         event: 'servcul.player.lookup.invalid-response',
         requestedUserId: userId,
         returnedUserId: Number.isFinite(returnedUserId) ? returnedUserId : null,
-        namePresent: typeof returnedName === 'string' && !!returnedName.trim(),
         responseKeys: Object.keys(result),
       }));
       return null;
@@ -172,7 +169,7 @@ export class ServculService {
     return {
       userId: returnedUserId,
       currencyId: Number.isFinite(currencyId) ? currencyId : 0,
-      name: returnedName.trim(),
+      name: typeof returnedName === 'string' ? returnedName.trim() : '',
     };
   }
 

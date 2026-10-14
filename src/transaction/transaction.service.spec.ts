@@ -427,7 +427,7 @@ describe('TransactionService automatic deposit verification', () => {
     const deposit = pendingDeposit();
     const rejected = Object.assign(deposit, {
       statut: TransactionStatus.REJETEE,
-      motifRejet: 'Aucune notification de paiement valide reçue dans le délai de trois minutes.',
+      motifRejet: 'Aucune notification de paiement valide reçue.',
     });
     repository.findStaleAutoWaiting.mockResolvedValue([deposit]);
     repository.rejectExpiredDeposit.mockResolvedValue(rejected);
@@ -437,7 +437,7 @@ describe('TransactionService automatic deposit verification', () => {
     expect(repository.rejectExpiredDeposit).toHaveBeenCalledWith(
       'deposit-1',
       expect.any(Date),
-      'Aucune notification de paiement valide reçue dans le délai de trois minutes.',
+      'Aucune notification de paiement valide reçue.',
     );
   });
 

@@ -143,7 +143,7 @@ export class TransactionService implements OnModuleInit, OnModuleDestroy {
           ? 'Votre paiement est confirmé et le crédit du compte est en cours ou nécessite une vérification. Ne relancez pas le paiement.'
           : result.existing?.statut === TransactionStatus.EN_ATTENTE_ADMIN
             ? 'Votre transaction précédente attend encore son traitement. Nous vous informerons dès sa mise à jour.'
-            : 'Un dépôt est déjà en cours. Attendez sa vérification ; sans notification valide, il expirera après trois minutes.');
+            : 'Un dépôt est déjà en cours. Attendez sa vérification.');
       }
       created = result.transaction;
     } else {
@@ -520,7 +520,7 @@ export class TransactionService implements OnModuleInit, OnModuleDestroy {
       const saved = await this.repository.rejectExpiredDeposit(
         entity.trackingId,
         expiredBefore,
-        'Aucune notification de paiement valide reçue dans le délai de trois minutes.',
+        'Aucune notification de paiement valide reçue.',
         pausedMs,
       );
       if (!saved) continue;
@@ -661,6 +661,16 @@ export class TransactionService implements OnModuleInit, OnModuleDestroy {
         JSON.stringify({ event: 'transaction.servcul.auto-payout.failed', transactionId: transaction.trackingId }),
         error instanceof Error ? error.stack : undefined,
       );
+      if (this.isDefinitiveInvalidWithdrawalCode(error)) {
+        const removed = await this.repository.removeRejectedWithdrawal(transaction.trackingId);
+        if (removed) {
+          throw new BadRequestException('Code de retrait invalide ou expiré. Vérifiez le code dans votre compte 1XBET puis réessayez.');
+        }
+        this.logger.warn(JSON.stringify({
+          event: 'transaction.servcul.invalid-payout-code.cleanup-failed',
+          transactionId: transaction.trackingId,
+        }));
+      }
       const message = this.getPayoutFailureMessage(error);
       const current = await this.repository.setAutomaticTransactionError(
         transaction.trackingId,
@@ -678,6 +688,25 @@ export class TransactionService implements OnModuleInit, OnModuleDestroy {
       }
       throw error;
     }
+  }
+
+  private isDefinitiveInvalidWithdrawalCode(error: unknown): boolean {
+    const getResponse = (error as { getResponse?: () => unknown } | null)?.getResponse;
+    if (typeof getResponse !== 'function') return false;
+    const payload = getResponse.call(error);
+    if (!payload || typeof payload !== 'object') return false;
+
+    const upstream = (payload as Record<string, unknown>).upstreamResponse;
+    const collectStrings = (value: unknown): string[] => {
+      if (typeof value === 'string') return [value];
+      if (!value || typeof value !== 'object') return [];
+      if (Array.isArray(value)) return value.flatMap(collectStrings);
+      return Object.values(value as Record<string, unknown>).flatMap(collectStrings);
+    };
+    const responseText = collectStrings(upstream).join(' ').toLocaleLowerCase();
+    const identifiesCode = /code|код/.test(responseText);
+    const explicitlyInvalid = /invalid|incorrect|wrong|expired|invalide|incorrecte|expir[ée]|невер|неправ|ист[её]к/.test(responseText);
+    return identifiesCode && explicitlyInvalid;
   }
 
   private getPayoutFailureMessage(error: unknown): string {
