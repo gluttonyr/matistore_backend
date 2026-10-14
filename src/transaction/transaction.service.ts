@@ -213,9 +213,10 @@ export class TransactionService implements OnModuleInit, OnModuleDestroy {
       reason: dto.motif?.trim().slice(0, 400) ?? null,
       paymentReferencePresent: !!transaction.referencePaiement,
     }));
+    const amount = `${transaction.montant.toLocaleString('fr-FR')} FCFA`;
     const message = dto.decision === TransactionStatus.VALIDEE
-      ? `✅ Après vérification, nous avons confirmé votre paiement et crédité votre compte 1XBET.\n${this.transactionDetails(transaction)}`
-      : `❌ Nous n’avons pas pu confirmer votre dépôt.\nMotif : ${transaction.motifRejet ?? '—'}\n${this.transactionDetails(transaction)}`;
+      ? `✅ Après vérification, nous avons confirmé votre paiement de ${amount} et crédité votre compte 1XBET.`
+      : `❌ Nous n’avons pas pu confirmer votre dépôt de ${amount}.\nMotif : ${transaction.motifRejet ?? '—'}`;
     await this.postSystemMessage(transaction, message);
     await this.notifyStatusChange(transaction);
     return transaction;
