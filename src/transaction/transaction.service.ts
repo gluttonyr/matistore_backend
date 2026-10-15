@@ -31,7 +31,7 @@ import { AdminCaptureHeartbeatDto } from './dto/admin-capture-heartbeat.dto';
 import { ResolveCaptureReconciliationDto } from './dto/resolve-capture-reconciliation.dto';
 import { RejectTransactionDto } from './dto/reject-transaction.dto';
 
-const AUTO_TIMEOUT_SECONDS = 180;
+const AUTO_TIMEOUT_SECONDS = 15 * 60;
 const AUTO_TIMEOUT_POLL_MS = 5_000;
 
 @Injectable()
