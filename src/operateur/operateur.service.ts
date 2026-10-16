@@ -85,7 +85,7 @@ export class OperateurService implements OnModuleInit {
   }
 
   findAll() {
-    return this.operateurRepository.find();
+    return this.operateurRepository.find({ where: { active: true } });
   }
 
   findByNom(nom: string) {
