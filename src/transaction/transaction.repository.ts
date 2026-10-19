@@ -176,7 +176,6 @@ export class TransactionRepository extends Repository<Transaction> {
       });
 
       const expired: Transaction[] = [];
-      const expiredIds = new Set<string>();
       for (const previous of openDeposits) {
         const awaitingPayment = [
           TransactionStatus.EN_ATTENTE_AUTO,
@@ -196,7 +195,6 @@ export class TransactionRepository extends Repository<Transaction> {
           previous.dateValidation = new Date();
           const saved = await repository.save(previous);
           expired.push(saved);
-          expiredIds.add(previous.trackingId);
         } else if (awaitingPayment && previous.createdAt < expiredBefore && !previous.captureReconciliationRequired) {
           // A payment may have arrived while capture was offline, or Servcul may
           // have returned an ambiguous credit result. Keep the case for admins,
@@ -205,20 +203,6 @@ export class TransactionRepository extends Repository<Transaction> {
           await repository.save(previous);
         }
       }
-
-      const activeDeposit = openDeposits.find((previous) => {
-        if (expiredIds.has(previous.trackingId)) return false;
-        const awaitingPayment = [
-          TransactionStatus.EN_ATTENTE_AUTO,
-          TransactionStatus.EN_VERIFICATION,
-          TransactionStatus.EN_ATTENTE_PREUVE,
-        ].includes(previous.statut);
-        const staleUncapturedReconciliation = awaitingPayment
-          && previous.captureReconciliationRequired
-          && previous.createdAt < expiredBefore;
-        return !staleUncapturedReconciliation;
-      });
-      if (activeDeposit) return { transaction: null, existing: activeDeposit, expired };
 
       const created = repository.create({
         ...transactionData,
