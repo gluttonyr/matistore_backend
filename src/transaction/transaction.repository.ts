@@ -185,13 +185,24 @@ export class TransactionRepository extends Repository<Transaction> {
         ].includes(previous.statut);
         const pausedSinceCreation = Math.max(0, pausedExpirationMs - Number(previous.capturePauseMsAtCreation || 0));
         const effectiveExpiredBefore = new Date(expiredBefore.getTime() - pausedSinceCreation);
-        if (awaitingPayment && !previous.captureReconciliationRequired && !previous.referencePaiement && !previous.creditError && previous.createdAt < effectiveExpiredBefore) {
+        const expiredWithoutPayment = awaitingPayment
+          && !previous.captureReconciliationRequired
+          && !previous.referencePaiement
+          && !previous.creditError
+          && previous.createdAt < effectiveExpiredBefore;
+        if (expiredWithoutPayment) {
           previous.statut = TransactionStatus.REJETEE;
           previous.motifRejet = 'Aucune notification valide reçue après le délai d’expiration automatique.';
           previous.dateValidation = new Date();
           const saved = await repository.save(previous);
           expired.push(saved);
           expiredIds.add(previous.trackingId);
+        } else if (awaitingPayment && previous.createdAt < expiredBefore && !previous.captureReconciliationRequired) {
+          // A payment may have arrived while capture was offline, or Servcul may
+          // have returned an ambiguous credit result. Keep the case for admins,
+          // but stop letting it block the customer's next deposit after timeout.
+          previous.captureReconciliationRequired = true;
+          await repository.save(previous);
         }
       }
 
@@ -204,8 +215,6 @@ export class TransactionRepository extends Repository<Transaction> {
         ].includes(previous.statut);
         const staleUncapturedReconciliation = awaitingPayment
           && previous.captureReconciliationRequired
-          && !previous.referencePaiement
-          && !previous.creditError
           && previous.createdAt < expiredBefore;
         return !staleUncapturedReconciliation;
       });
