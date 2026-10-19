@@ -270,7 +270,7 @@ export class TransactionService implements OnModuleInit, OnModuleDestroy {
     message?: string;
     reason?: string;
     extracted?: { montant: number | null; reference: string | null; telephone: string | null };
-    transactionSelection?: 'most_recent' | 'unique_match';
+    transactionSelection?: 'most_recent' | 'unique_match' | 'manual_reconciliation';
     creditSucceeded?: boolean;
   }> {
     await this.assertAdmin(adminId);
