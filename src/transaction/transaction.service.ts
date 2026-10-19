@@ -351,13 +351,31 @@ export class TransactionService implements OnModuleInit, OnModuleDestroy {
     );
     candidates = candidates.filter((candidate) =>
       candidate.createdAt <= notificationPostedAt
-      && candidate.createdAt >= since
+      && (candidate.createdAt >= since || candidate.captureReconciliationRequired)
       && candidate.numeroTelephone
       && this.phonesMatch(candidate.numeroTelephone, notificationPhone),
     );
     if (candidates.length === 0) {
       this.logger.warn(JSON.stringify({ event: 'admin.capture.no-match', operateur: operateur.nom, montant: dto.montant }));
       return debugResult(false, true, 'Aucune transaction en attente ne correspond à cet opérateur, montant et numéro.');
+    }
+
+    if (candidates.length > 1 || candidates.some((candidate) => candidate.captureReconciliationRequired)) {
+      await this.repository.requireCaptureReconciliation(candidates.map((candidate) => candidate.trackingId));
+      this.logger.warn(JSON.stringify({
+        event: 'admin.capture.ambiguous-candidates',
+        operateur: operateur.nom,
+        montant: dto.montant,
+        candidateCount: candidates.length,
+        transactionIds: candidates.map((candidate) => candidate.trackingId),
+      }));
+      return {
+        matched: false,
+        retryable: false,
+        reason: 'Plusieurs dépôts peuvent correspondre à ce paiement. Un administrateur doit effectuer le rapprochement.',
+        extracted,
+        transactionSelection: 'manual_reconciliation',
+      };
     }
 
     candidates.sort((first, second) =>

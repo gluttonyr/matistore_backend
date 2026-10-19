@@ -187,7 +187,7 @@ export class TransactionRepository extends Repository<Transaction> {
         const effectiveExpiredBefore = new Date(expiredBefore.getTime() - pausedSinceCreation);
         if (awaitingPayment && !previous.captureReconciliationRequired && !previous.referencePaiement && !previous.creditError && previous.createdAt < effectiveExpiredBefore) {
           previous.statut = TransactionStatus.REJETEE;
-          previous.motifRejet = 'Aucune notification valide reçue dans la minute suivant la demande.';
+          previous.motifRejet = 'Aucune notification valide reçue après le délai d’expiration automatique.';
           previous.dateValidation = new Date();
           const saved = await repository.save(previous);
           expired.push(saved);
@@ -195,7 +195,20 @@ export class TransactionRepository extends Repository<Transaction> {
         }
       }
 
-      const activeDeposit = openDeposits.find((previous) => !expiredIds.has(previous.trackingId));
+      const activeDeposit = openDeposits.find((previous) => {
+        if (expiredIds.has(previous.trackingId)) return false;
+        const awaitingPayment = [
+          TransactionStatus.EN_ATTENTE_AUTO,
+          TransactionStatus.EN_VERIFICATION,
+          TransactionStatus.EN_ATTENTE_PREUVE,
+        ].includes(previous.statut);
+        const staleUncapturedReconciliation = awaitingPayment
+          && previous.captureReconciliationRequired
+          && !previous.referencePaiement
+          && !previous.creditError
+          && previous.createdAt < expiredBefore;
+        return !staleUncapturedReconciliation;
+      });
       if (activeDeposit) return { transaction: null, existing: activeDeposit, expired };
 
       const created = repository.create({
@@ -488,11 +501,28 @@ export class TransactionRepository extends Repository<Transaction> {
           statuts: [
             TransactionStatus.EN_ATTENTE_AUTO,
             TransactionStatus.EN_VERIFICATION,
+            TransactionStatus.EN_ATTENTE_PREUVE,
           ],
       })
-      .andWhere('t.createdAt >= :since', { since })
+      .andWhere('(t.createdAt >= :since OR t.capture_reconciliation_required = true)', { since })
       .orderBy('t.createdAt', 'ASC')
       .getMany();
+  }
+
+  async requireCaptureReconciliation(trackingIds: string[]): Promise<void> {
+    if (!trackingIds.length) return;
+    await this.createQueryBuilder()
+      .update(Transaction)
+      .set({ captureReconciliationRequired: true })
+      .where('tracking_id IN (:...trackingIds)', { trackingIds })
+      .andWhere('statut IN (:...statuts)', {
+        statuts: [
+          TransactionStatus.EN_ATTENTE_AUTO,
+          TransactionStatus.EN_VERIFICATION,
+          TransactionStatus.EN_ATTENTE_PREUVE,
+        ],
+      })
+      .execute();
   }
 
   findStaleAutoWaiting(autoWaitingBefore: Date, pausedExpirationMs = 0) {
