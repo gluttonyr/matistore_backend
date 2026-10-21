@@ -24,6 +24,8 @@ describe('TransactionService automatic deposit verification', () => {
     findByConfirmedReference: jest.Mock;
     findOpenCandidates: jest.Mock;
     requireCaptureReconciliation: jest.Mock;
+    findStaleReconciliation: jest.Mock;
+    rejectStaleReconciliation: jest.Mock;
     findStaleAutoWaiting: jest.Mock;
     markDepositAsVerified: jest.Mock;
     cancelPendingDeposit: jest.Mock;
@@ -88,6 +90,8 @@ describe('TransactionService automatic deposit verification', () => {
       findByConfirmedReference: jest.fn().mockResolvedValue(null),
       findOpenCandidates: jest.fn(),
       requireCaptureReconciliation: jest.fn().mockResolvedValue(undefined),
+      findStaleReconciliation: jest.fn().mockResolvedValue([]),
+      rejectStaleReconciliation: jest.fn(),
       findStaleAutoWaiting: jest.fn().mockResolvedValue([]),
       markDepositAsVerified: jest.fn(),
       cancelPendingDeposit: jest.fn(),
@@ -453,6 +457,50 @@ describe('TransactionService automatic deposit verification', () => {
     expect(result).toEqual(expect.objectContaining({ matched: false, transactionSelection: 'manual_reconciliation' }));
     expect(repository.requireCaptureReconciliation).toHaveBeenCalledWith(['deposit-a', 'deposit-b']);
     expect(repository.markDepositAsVerified).not.toHaveBeenCalled();
+  });
+
+  it('matches a late notification to the only client whose deposits await reconciliation', async () => {
+    const notificationTime = new Date('2026-10-21T14:02:30.000Z').getTime();
+    const flagged = Object.assign(pendingDeposit(), {
+      trackingId: 'deposit-flagged',
+      createdAt: new Date('2026-10-21T13:40:00.000Z'),
+      captureReconciliationRequired: true,
+    });
+    repository.findOpenCandidates.mockResolvedValue([flagged]);
+    repository.markDepositAsVerified.mockResolvedValue(null);
+
+    await service.processAdminCapture({
+      operateur: 'TMoney',
+      montant: 1000,
+      notificationPostedAt: notificationTime,
+      numeroTelephoneClient: '22890000000',
+      notificationBrute: 'MATI STORE Paiement de 1 000 FCFA effectué par 22890000000 Ref: 123456',
+      packageNotification: 'com.android.messaging',
+      titreNotification: 'TMoney Paiement',
+    }, 99);
+
+    expect(repository.markDepositAsVerified).toHaveBeenCalledWith('deposit-flagged', '123456', expect.any(String));
+    expect(repository.requireCaptureReconciliation).not.toHaveBeenCalled();
+  });
+
+  it('silently rejects deposits awaiting reconciliation for more than 25 hours', async () => {
+    const stale = Object.assign(pendingDeposit(), { captureReconciliationRequired: true });
+    repository.findStaleReconciliation.mockResolvedValue([stale]);
+    repository.rejectStaleReconciliation.mockResolvedValue(Object.assign(new Transaction(), stale, {
+      statut: TransactionStatus.REJETEE,
+      motifRejet: 'Aucun paiement détecté pour ce dépôt. Si vous avez payé, faites une réclamation.',
+    }));
+
+    const before = Date.now();
+    await service.timeoutStaleTransactions();
+
+    const cutoff: Date = repository.findStaleReconciliation.mock.calls[0][0];
+    expect(before - cutoff.getTime()).toBeGreaterThanOrEqual(25 * 60 * 60 * 1000);
+    expect(before - cutoff.getTime()).toBeLessThan(25 * 60 * 60 * 1000 + 5_000);
+    expect(repository.rejectStaleReconciliation).toHaveBeenCalledWith('deposit-1', cutoff, expect.stringContaining('réclamation'));
+    expect(moduleRef.get(MessageService).create).not.toHaveBeenCalled();
+    expect(moduleRef.get(MessageGateway).emitTransactionStatusChanged).not.toHaveBeenCalled();
+    expect(moduleRef.get(PushNotificationService).sendToTokens).not.toHaveBeenCalled();
   });
 
   it('does not match an old payment notification to a deposit created afterward', async () => {

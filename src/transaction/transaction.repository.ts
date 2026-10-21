@@ -483,6 +483,53 @@ export class TransactionRepository extends Repository<Transaction> {
     });
   }
 
+  findStaleReconciliation(createdBefore: Date) {
+    return this.createQueryBuilder('t')
+      .where('t.type = :type', { type: TransactionType.DEPOT })
+      .andWhere('t.statut IN (:...statuts)', {
+        statuts: [
+          TransactionStatus.EN_ATTENTE_AUTO,
+          TransactionStatus.EN_VERIFICATION,
+          TransactionStatus.EN_ATTENTE_PREUVE,
+        ],
+      })
+      .andWhere('t.capture_reconciliation_required = true')
+      .andWhere('t.referencePaiement IS NULL')
+      .andWhere('t.creditError IS NULL')
+      .andWhere('t.createdAt < :createdBefore', { createdBefore })
+      .getMany();
+  }
+
+  rejectStaleReconciliation(trackingId: string, createdBefore: Date, motif: string) {
+    return this.manager.transaction(async (manager) => {
+      const repository = manager.getRepository(Transaction);
+      const transaction = await repository.findOne({
+        where: { trackingId },
+        relations: { user: true },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!transaction
+        || transaction.type !== TransactionType.DEPOT
+        || !transaction.captureReconciliationRequired
+        || !!transaction.referencePaiement
+        || !!transaction.creditError
+        || ![
+          TransactionStatus.EN_ATTENTE_AUTO,
+          TransactionStatus.EN_VERIFICATION,
+          TransactionStatus.EN_ATTENTE_PREUVE,
+        ].includes(transaction.statut)
+        || transaction.createdAt >= createdBefore) {
+        return null;
+      }
+
+      transaction.statut = TransactionStatus.REJETEE;
+      transaction.motifRejet = motif;
+      transaction.dateValidation = new Date();
+      transaction.captureReconciliationRequired = false;
+      return repository.save(transaction);
+    });
+  }
+
   findOpenCandidates(operateur: string, montant: number, since: Date, notificationPostedAt: Date) {
     return this.createQueryBuilder('t')
       .innerJoinAndSelect('t.user', 'user')

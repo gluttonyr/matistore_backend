@@ -32,6 +32,7 @@ import { ResolveCaptureReconciliationDto } from './dto/resolve-capture-reconcili
 import { RejectTransactionDto } from './dto/reject-transaction.dto';
 
 const AUTO_TIMEOUT_SECONDS = 15 * 60;
+const RECONCILIATION_TIMEOUT_MS = 25 * 60 * 60 * 1000;
 const AUTO_TIMEOUT_POLL_MS = 5_000;
 
 @Injectable()
@@ -361,11 +362,13 @@ export class TransactionService implements OnModuleInit, OnModuleDestroy {
     }
 
     // An old flagged deposit must not block the client's fresh one: the live notification belongs to the deposit
-    // created within the window. Only fresh deposits from different clients need an administrator.
+    // created within the window. When every candidate belongs to one client, the credit goes to the right person
+    // whichever deposit is picked; only candidates from different clients need an administrator.
     const fresh = candidates.filter((candidate) => !candidate.captureReconciliationRequired && candidate.createdAt >= since);
-    if (fresh.length > 0 && new Set(fresh.map((candidate) => candidate.user?.id)).size === 1) {
+    const singleClient = (list: Transaction[]) => new Set(list.map((candidate) => candidate.user?.id)).size === 1;
+    if (fresh.length > 0 && singleClient(fresh)) {
       candidates = fresh;
-    } else {
+    } else if (!singleClient(candidates)) {
       await this.repository.requireCaptureReconciliation(candidates.map((candidate) => candidate.trackingId));
       this.logger.warn(JSON.stringify({
         event: 'admin.capture.ambiguous-candidates',
@@ -531,6 +534,17 @@ export class TransactionService implements OnModuleInit, OnModuleDestroy {
   }
 
   async timeoutStaleTransactions(): Promise<void> {
+    // Runs even while capture is down: after this delay the client claims with proof instead of waiting on an admin.
+    // Silent on purpose for now: no chat message or push notification for these rejections.
+    const reconciliationBefore = new Date(Date.now() - RECONCILIATION_TIMEOUT_MS);
+    for (const entity of await this.repository.findStaleReconciliation(reconciliationBefore)) {
+      await this.repository.rejectStaleReconciliation(
+        entity.trackingId,
+        reconciliationBefore,
+        'Aucun paiement détecté pour ce dépôt. Si vous avez payé, faites une réclamation.',
+      );
+    }
+
     const capture = await this.captureAvailability.getStatus();
     if (!capture.available) return;
     const now = Date.now();
