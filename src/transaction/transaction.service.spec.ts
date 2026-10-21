@@ -23,6 +23,7 @@ describe('TransactionService automatic deposit verification', () => {
     findByTrackingId: jest.Mock;
     findByConfirmedReference: jest.Mock;
     findOpenCandidates: jest.Mock;
+    requireCaptureReconciliation: jest.Mock;
     findStaleAutoWaiting: jest.Mock;
     markDepositAsVerified: jest.Mock;
     cancelPendingDeposit: jest.Mock;
@@ -86,6 +87,7 @@ describe('TransactionService automatic deposit verification', () => {
       findByTrackingId: jest.fn(),
       findByConfirmedReference: jest.fn().mockResolvedValue(null),
       findOpenCandidates: jest.fn(),
+      requireCaptureReconciliation: jest.fn().mockResolvedValue(undefined),
       findStaleAutoWaiting: jest.fn().mockResolvedValue([]),
       markDepositAsVerified: jest.fn(),
       cancelPendingDeposit: jest.fn(),
@@ -396,6 +398,61 @@ describe('TransactionService automatic deposit verification', () => {
       '123456',
       expect.stringContaining('Ref: 123456'),
     );
+  });
+
+  it('credits the fresh deposit when the same client also has an old deposit awaiting reconciliation', async () => {
+    const notificationTime = new Date('2026-10-21T14:02:30.000Z').getTime();
+    const oldFlagged = Object.assign(pendingDeposit(), {
+      trackingId: 'deposit-old',
+      createdAt: new Date('2026-10-21T13:56:00.000Z'),
+      captureReconciliationRequired: true,
+    });
+    const fresh = Object.assign(pendingDeposit(), {
+      trackingId: 'deposit-fresh',
+      createdAt: new Date('2026-10-21T14:02:00.000Z'),
+    });
+    repository.findOpenCandidates.mockResolvedValue([oldFlagged, fresh]);
+    // Stop right after selection: this test only checks which deposit receives the notification.
+    repository.markDepositAsVerified.mockResolvedValue(null);
+
+    const result = await service.processAdminCapture({
+      operateur: 'TMoney',
+      montant: 1000,
+      notificationPostedAt: notificationTime,
+      numeroTelephoneClient: '22890000000',
+      notificationBrute: 'MATI STORE Paiement de 1 000 FCFA effectué par 22890000000 Ref: 123456',
+      packageNotification: 'com.android.messaging',
+      titreNotification: 'TMoney Paiement',
+    }, 99);
+
+    expect(repository.markDepositAsVerified).toHaveBeenCalledWith('deposit-fresh', '123456', expect.any(String));
+    expect(repository.requireCaptureReconciliation).not.toHaveBeenCalled();
+    expect(result).not.toEqual(expect.objectContaining({ transactionSelection: 'manual_reconciliation' }));
+  });
+
+  it('asks an administrator when fresh matching deposits belong to different clients', async () => {
+    const notificationTime = new Date('2026-10-21T14:02:30.000Z').getTime();
+    const first = Object.assign(pendingDeposit(), { trackingId: 'deposit-a', createdAt: new Date('2026-10-21T14:00:00.000Z') });
+    const second = Object.assign(pendingDeposit(), {
+      trackingId: 'deposit-b',
+      user: { id: 8, trackingId: 'user-8' },
+      createdAt: new Date('2026-10-21T14:01:00.000Z'),
+    });
+    repository.findOpenCandidates.mockResolvedValue([first, second]);
+
+    const result = await service.processAdminCapture({
+      operateur: 'TMoney',
+      montant: 1000,
+      notificationPostedAt: notificationTime,
+      numeroTelephoneClient: '22890000000',
+      notificationBrute: 'MATI STORE Paiement de 1 000 FCFA effectué par 22890000000 Ref: 123456',
+      packageNotification: 'com.android.messaging',
+      titreNotification: 'TMoney Paiement',
+    }, 99);
+
+    expect(result).toEqual(expect.objectContaining({ matched: false, transactionSelection: 'manual_reconciliation' }));
+    expect(repository.requireCaptureReconciliation).toHaveBeenCalledWith(['deposit-a', 'deposit-b']);
+    expect(repository.markDepositAsVerified).not.toHaveBeenCalled();
   });
 
   it('does not match an old payment notification to a deposit created afterward', async () => {

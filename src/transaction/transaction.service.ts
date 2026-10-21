@@ -360,7 +360,12 @@ export class TransactionService implements OnModuleInit, OnModuleDestroy {
       return debugResult(false, true, 'Aucune transaction en attente ne correspond à cet opérateur, montant et numéro.');
     }
 
-    if (candidates.length > 1 || candidates.some((candidate) => candidate.captureReconciliationRequired)) {
+    // An old flagged deposit must not block the client's fresh one: the live notification belongs to the deposit
+    // created within the window. Only fresh deposits from different clients need an administrator.
+    const fresh = candidates.filter((candidate) => !candidate.captureReconciliationRequired && candidate.createdAt >= since);
+    if (fresh.length > 0 && new Set(fresh.map((candidate) => candidate.user?.id)).size === 1) {
+      candidates = fresh;
+    } else {
       await this.repository.requireCaptureReconciliation(candidates.map((candidate) => candidate.trackingId));
       this.logger.warn(JSON.stringify({
         event: 'admin.capture.ambiguous-candidates',
