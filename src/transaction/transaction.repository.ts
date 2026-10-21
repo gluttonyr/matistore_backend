@@ -507,7 +507,7 @@ export class TransactionRepository extends Repository<Transaction> {
     await this.createQueryBuilder()
       .update(Transaction)
       .set({ captureReconciliationRequired: true })
-      .where('tracking_id IN (:...trackingIds)', { trackingIds })
+      .where('"trackingId" IN (:...trackingIds)', { trackingIds })
       .andWhere('statut IN (:...statuts)', {
         statuts: [
           TransactionStatus.EN_ATTENTE_AUTO,
