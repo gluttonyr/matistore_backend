@@ -11,12 +11,15 @@ describe('DeviceTokenService', () => {
     rows = [];
     user = { id: 1, role: 'ADMIN', active: true };
     const repo: any = {
-      create: (x: any) => ({ revokedAt: null, lastUsedAt: null, ...x }),
+      create: (x: any) => ({ revokedAt: null, lastUsedAt: null, createdAt: new Date(Date.now() + rows.length), ...x }),
       save: async (x: any) => {
         if (!rows.includes(x)) rows.push(x);
         return x;
       },
-      findOne: async ({ where }: any) => rows.find((r) => r.tokenHash === where.tokenHash) ?? null,
+      findOne: async ({ where }: any) =>
+        where.tokenHash
+          ? rows.find((r) => r.tokenHash === where.tokenHash) ?? null
+          : [...rows].filter((r) => r.deviceId === where.deviceId).sort((a, b) => a.createdAt - b.createdAt)[0] ?? null,
       update: async (where: any, patch: any) => {
         rows
           .filter((r) => r.adminId === where.adminId && r.deviceId === where.deviceId && r.revokedAt === null)
@@ -26,6 +29,9 @@ describe('DeviceTokenService', () => {
     const m: any = {
       create: (_e: any, x: any) => repo.create(x),
       save: (x: any) => repo.save(x),
+      delete: async (_e: any, where: any) => {
+        rows = rows.filter((r) => r.deviceId !== where.deviceId);
+      },
       update: async (_e: any, where: any, patch: any) => {
         rows.filter((r) => r.deviceId === where.deviceId && r.revokedAt === null).forEach((r) => Object.assign(r, patch));
       },
@@ -41,6 +47,18 @@ describe('DeviceTokenService', () => {
     expect(JSON.stringify(rows)).not.toContain(token);
     expect(await service.resolve(token)).toEqual({ adminId: 1, deviceId: 'dev-1' });
     expect(rows[0].lastUsedAt).toBeInstanceOf(Date);
+  });
+
+  it('activatedAt is the first registration, and resetActivation moves it to the new token', async () => {
+    const old = await service.register(1, 'dev-1');
+    const first = await service.activatedAt('dev-1');
+    await service.register(1, 'dev-1');
+    expect(await service.activatedAt('dev-1')).toBe(first);
+    const fresh = await service.register(1, 'dev-1', true);
+    const reset = await service.activatedAt('dev-1');
+    expect(reset!.getTime()).toBeGreaterThan(first!.getTime());
+    expect(await service.resolve(old)).toBeNull();
+    expect(await service.resolve(fresh)).not.toBeNull();
   });
 
   it('register revokes the previous token of the same device', async () => {

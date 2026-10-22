@@ -25,7 +25,16 @@ export class SmsCaptureController {
   async register(@Body() body: SmsDeviceDto, @Req() req: any): Promise<ApiResponse> {
     this.assertAdmin(req);
     const token = await this.tokens.register(Number(req.user.userId), body.deviceId);
-    return { data: { token }, message: 'Appareil enregistré', status: 200 };
+    return { data: { token, activatedAt: await this.tokens.activatedAt(body.deviceId) }, message: 'Appareil enregistré', status: 200 };
+  }
+
+  // SMS received before activatedAt are never auto-attributed; resetting moves that date to now.
+  @Post('device/reset-activation')
+  @UseGuards(AuthGuard('jwt'))
+  async resetActivation(@Body() body: SmsDeviceDto, @Req() req: any): Promise<ApiResponse> {
+    this.assertAdmin(req);
+    const token = await this.tokens.register(Number(req.user.userId), body.deviceId, true);
+    return { data: { token, activatedAt: await this.tokens.activatedAt(body.deviceId) }, message: 'Vérification réinitialisée', status: 200 };
   }
 
   @Post('device/revoke')

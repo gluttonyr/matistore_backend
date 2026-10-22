@@ -15,13 +15,15 @@ export class DeviceTokenService {
     private readonly users: UtilisateurService,
   ) {}
 
-  async register(adminId: number, deviceId: string): Promise<string> {
+  // resetActivation: drop this phone's token history so its activation date (activatedAt) becomes now.
+  async register(adminId: number, deviceId: string, resetActivation = false): Promise<string> {
     await this.assertActiveAdmin(adminId);
     // Only the hash is persisted: a DB leak must not expose usable tokens.
     const token = randomBytes(32).toString('base64url');
     await this.repo.manager.transaction(async (m) => {
+      if (resetActivation) await m.delete(SmsCaptureDeviceToken, { deviceId });
       // One active token per device, whichever admin owned the previous one.
-      await m.update(SmsCaptureDeviceToken, { deviceId, revokedAt: IsNull() }, { revokedAt: new Date() });
+      else await m.update(SmsCaptureDeviceToken, { deviceId, revokedAt: IsNull() }, { revokedAt: new Date() });
       await m.save(m.create(SmsCaptureDeviceToken, { adminId, deviceId, tokenHash: hash(token) }));
     });
     return token;
