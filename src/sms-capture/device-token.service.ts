@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { ForbiddenException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { IsNull, Repository } from 'typeorm';
 import { createHash, randomBytes } from 'crypto';
@@ -16,15 +16,27 @@ export class DeviceTokenService {
   ) {}
 
   async register(adminId: number, deviceId: string): Promise<string> {
+    await this.assertActiveAdmin(adminId);
     // Only the hash is persisted: a DB leak must not expose usable tokens.
     const token = randomBytes(32).toString('base64url');
-    await this.revoke(adminId, deviceId);
-    await this.repo.save(this.repo.create({ adminId, deviceId, tokenHash: hash(token) }));
+    await this.repo.manager.transaction(async (m) => {
+      // One active token per device, whichever admin owned the previous one.
+      await m.update(SmsCaptureDeviceToken, { deviceId, revokedAt: IsNull() }, { revokedAt: new Date() });
+      await m.save(m.create(SmsCaptureDeviceToken, { adminId, deviceId, tokenHash: hash(token) }));
+    });
     return token;
   }
 
   async revoke(adminId: number, deviceId: string): Promise<void> {
+    await this.assertActiveAdmin(adminId);
     await this.repo.update({ adminId, deviceId, revokedAt: IsNull() }, { revokedAt: new Date() });
+  }
+
+  private async assertActiveAdmin(adminId: number): Promise<void> {
+    const admin = await this.users.findUserById(adminId);
+    if (!admin || admin.role !== UserRole.ADMIN || !admin.active) {
+      throw new ForbiddenException('Seul un administrateur actif peut traiter cette opération');
+    }
   }
 
   async resolve(token: string): Promise<{ adminId: number; deviceId: string } | null> {
