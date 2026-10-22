@@ -4,6 +4,9 @@ import { SmsCapture } from './entities/sms-capture.entity';
 import { SmsCaptureDeviceToken } from './entities/sms-capture-device-token.entity';
 import { TransactionModule } from '../transaction/transaction.module';
 import { OperateurModule } from '../operateur/operateur.module';
+import { DeviceTokenService } from './device-token.service';
+import { DeviceTokenGuard } from './device-token.guard';
+import { SmsCaptureController } from './sms-capture.controller';
 import { UtilisateurModule } from '../utilisateur/utilisateur.module';
 
 @Module({
@@ -13,5 +16,7 @@ import { UtilisateurModule } from '../utilisateur/utilisateur.module';
     OperateurModule,
     UtilisateurModule,
   ],
+  controllers: [SmsCaptureController],
+  providers: [DeviceTokenService, DeviceTokenGuard],
 })
 export class SmsCaptureModule {}
