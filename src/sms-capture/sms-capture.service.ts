@@ -8,6 +8,7 @@ import { SmsItemDto } from './dto/sms-batch.dto';
 import { smsFingerprint } from './sms-fingerprint';
 import { SmsListQueryDto } from './dto/sms-query.dto';
 import { AssignSmsDto } from './dto/assign-sms.dto';
+import { DeviceTokenService } from './device-token.service';
 
 export interface SmsIngestResult {
   fingerprint: string;
@@ -19,6 +20,7 @@ export interface SmsIngestResult {
 }
 
 const WINDOW_MS = 24 * 3600_000;
+const PRE_ACTIVATION_MOTIF = 'Reçu avant l’activation de Mati-Pay sur ce téléphone : à vérifier manuellement';
 
 const fullName = (u?: { prenom?: string; nom?: string } | null) => (u ? `${u.prenom ?? ''} ${u.nom ?? ''}`.trim() : null);
 
@@ -45,15 +47,17 @@ export class SmsCaptureService {
     @InjectRepository(SmsCapture) private readonly repo: Repository<SmsCapture>,
     private readonly transactions: TransactionService,
     private readonly operateurs: OperateurService,
+    private readonly tokens: DeviceTokenService,
   ) {}
 
   async ingestBatch(adminId: number, deviceId: string, items: SmsItemDto[]): Promise<SmsIngestResult[]> {
     const results: SmsIngestResult[] = [];
+    const activatedAt = await this.tokens.activatedAt(deviceId);
     for (const item of items) {
       let fingerprint = '';
       try {
         fingerprint = smsFingerprint(item.expediteur, item.receivedAt, item.corps);
-        results.push(await this.ingestOne(adminId, deviceId, item, fingerprint));
+        results.push(await this.ingestOne(adminId, deviceId, item, fingerprint, activatedAt));
       } catch (e) {
         results.push({ fingerprint, error: e instanceof Error ? e.message : String(e) });
       }
@@ -154,7 +158,13 @@ export class SmsCaptureService {
     return this.repo.findOne({ where: { fingerprint }, relations: { transaction: true } });
   }
 
-  private async ingestOne(adminId: number, deviceId: string, item: SmsItemDto, fingerprint: string): Promise<SmsIngestResult> {
+  private async ingestOne(
+    adminId: number,
+    deviceId: string,
+    item: SmsItemDto,
+    fingerprint: string,
+    activatedAt: Date | null,
+  ): Promise<SmsIngestResult> {
     const existing = await this.findByFingerprint(fingerprint);
     if (existing) return this.toResult(existing, fingerprint);
 
@@ -178,6 +188,12 @@ export class SmsCaptureService {
       });
     }
     const parsed = { ...base, operateur: op.nom, montant: fields.montant, telephone: fields.telephone, reference: fields.reference };
+
+    // An SMS older than this phone's activation may match a deposit an admin already settled by hand
+    // outside the app: keep it visible for manual assignment, never auto-credit it.
+    if (activatedAt && base.receivedAt! < activatedAt) {
+      return this.save(parsed, { statut: SmsCaptureStatus.SANS_TRANSACTION, motif: PRE_ACTIVATION_MOTIF });
+    }
 
     const r = await this.transactions.processAdminCapture(
       {

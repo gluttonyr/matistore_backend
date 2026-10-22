@@ -27,6 +27,12 @@ export class DeviceTokenService {
     return token;
   }
 
+  // First time this phone was ever registered; later re-registrations don't move it.
+  async activatedAt(deviceId: string): Promise<Date | null> {
+    const first = await this.repo.findOne({ where: { deviceId }, order: { createdAt: 'ASC' } });
+    return first?.createdAt ?? null;
+  }
+
   async revoke(adminId: number, deviceId: string): Promise<void> {
     await this.assertActiveAdmin(adminId);
     await this.repo.update({ adminId, deviceId, revokedAt: IsNull() }, { revokedAt: new Date() });

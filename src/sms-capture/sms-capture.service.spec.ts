@@ -8,6 +8,7 @@ describe('SmsCaptureService.ingestBatch', () => {
   let repo: { findOne: jest.Mock; create: jest.Mock; save: jest.Mock };
   let tx: { processAdminCapture: jest.Mock; extractCaptureFields: jest.Mock; findByPaymentReference: jest.Mock };
   let operateurs: { findAll: jest.Mock };
+  let tokens: { activatedAt: jest.Mock };
   let service: SmsCaptureService;
 
   beforeEach(() => {
@@ -22,7 +23,24 @@ describe('SmsCaptureService.ingestBatch', () => {
       findByPaymentReference: jest.fn(),
     };
     operateurs = { findAll: jest.fn().mockResolvedValue([op]) };
-    service = new SmsCaptureService(repo as any, tx as any, operateurs as any);
+    tokens = { activatedAt: jest.fn().mockResolvedValue(null) };
+    service = new SmsCaptureService(repo as any, tx as any, operateurs as any, tokens as any);
+  });
+
+  it('never auto-attributes an SMS received before this phone was first activated', async () => {
+    tokens.activatedAt.mockResolvedValue(new Date(1_700_000_000_000 + 60_000));
+    const [r] = await service.ingestBatch(1, 'd', [sms()]);
+    expect(tokens.activatedAt).toHaveBeenCalledWith('d');
+    expect(tx.processAdminCapture).not.toHaveBeenCalled();
+    expect(r.statut).toBe(SmsCaptureStatus.SANS_TRANSACTION);
+    expect(r.motif).toContain('avant l’activation');
+    expect(repo.save).toHaveBeenCalledWith(expect.objectContaining({ reference: 'R1', montant: 1000 }));
+  });
+
+  it('auto-attributes an SMS received after activation', async () => {
+    tokens.activatedAt.mockResolvedValue(new Date(1_700_000_000_000 - 60_000));
+    await service.ingestBatch(1, 'd', [sms()]);
+    expect(tx.processAdminCapture).toHaveBeenCalled();
   });
 
   it('a duplicate fingerprint returns the stored row without calling processAdminCapture', async () => {
@@ -123,7 +141,7 @@ describe('SmsCaptureService consultation', () => {
     qb.getMany = jest.fn().mockResolvedValue([]);
     repo = { createQueryBuilder: jest.fn().mockReturnValue(qb), count: jest.fn() };
     tx = { findById: jest.fn().mockResolvedValue(txRow) };
-    service = new SmsCaptureService(repo, tx, {} as any);
+    service = new SmsCaptureService(repo, tx, {} as any, {} as any);
   });
 
   it('candidates exclude ATTRIBUE and other amounts and are ordered by date proximity', async () => {
@@ -171,7 +189,7 @@ describe('SmsCaptureService.assign', () => {
     smsRepo = { findOne: jest.fn(async () => row), save: jest.fn(async (x) => x) };
     tx = { assignSmsManually: jest.fn().mockResolvedValue({ transactionId: 'tx1', creditSucceeded: true }) };
     const repo = { manager: { transaction: (cb: any) => cb({ getRepository: () => smsRepo }) } };
-    service = new SmsCaptureService(repo as any, tx as any, {} as any);
+    service = new SmsCaptureService(repo as any, tx as any, {} as any, {} as any);
   });
 
   it('locks the row, assigns and records the manual attribution', async () => {
