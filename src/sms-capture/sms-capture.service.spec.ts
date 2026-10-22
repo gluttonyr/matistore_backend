@@ -100,4 +100,11 @@ describe('SmsCaptureService.ingestBatch', () => {
     expect(res[1]).toMatchObject({ error: 'boom', fingerprint: smsFingerprint('MIXX Togo', 1_700_000_000_000, 'b') });
     expect(res[2].error).toBeUndefined();
   });
+  it('a null item yields an error for that item only', async () => {
+    const res = await service.ingestBatch(1, 'd', [sms('a'), null as any, sms('c')]);
+    expect(res).toHaveLength(3);
+    expect(res[1].error).toBeDefined();
+    expect(res[0].error).toBeUndefined();
+    expect(res[2].error).toBeUndefined();
+  });
 });

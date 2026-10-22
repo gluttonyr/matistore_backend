@@ -29,8 +29,9 @@ export class SmsCaptureService {
   async ingestBatch(adminId: number, deviceId: string, items: SmsItemDto[]): Promise<SmsIngestResult[]> {
     const results: SmsIngestResult[] = [];
     for (const item of items) {
-      const fingerprint = smsFingerprint(item.expediteur, item.receivedAt, item.corps);
+      let fingerprint = '';
       try {
+        fingerprint = smsFingerprint(item.expediteur, item.receivedAt, item.corps);
         results.push(await this.ingestOne(adminId, deviceId, item, fingerprint));
       } catch (e) {
         results.push({ fingerprint, error: e instanceof Error ? e.message : String(e) });

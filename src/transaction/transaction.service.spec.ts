@@ -682,6 +682,7 @@ describe('TransactionService automatic deposit verification', () => {
     expect(service.extractCaptureFields(operator as any, 'Paiement de 7 000 FCFA effectué par 90000000 Ref: 1'))
       .toEqual({ montant: 7000, reference: '1', telephone: '90000000' });
     expect(service.extractCaptureFields(operator as any, 'Paiement de 2 000,00 FCFA Ref: 2')?.montant).toBe(2000);
+    expect(service.extractCaptureFields(operator as any, 'Paiement de 1 000.50 FCFA Ref: 3')?.montant).toBe(1000);
     expect(service.extractCaptureFields(operator as any, 'rien')).toBeNull();
   });
 });

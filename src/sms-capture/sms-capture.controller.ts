@@ -1,4 +1,4 @@
-import { Body, Controller, ForbiddenException, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, ForbiddenException, Post, Req, UseGuards, UsePipes, ValidationPipe } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiResponse } from '../common/api-response.interface';
 import { TransactionService } from '../transaction/transaction.service';
@@ -8,6 +8,8 @@ import { SmsCaptureService } from './sms-capture.service';
 import { SmsBatchDto } from './dto/sms-batch.dto';
 import { SmsDeviceDto, SmsHeartbeatDto } from './dto/sms-heartbeat.dto';
 
+// Scoped here: the app has no global ValidationPipe and adding one would change other endpoints.
+@UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
 @Controller('sms-capture')
 export class SmsCaptureController {
   constructor(
