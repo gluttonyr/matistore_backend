@@ -40,6 +40,9 @@ import { AppNotificationModule } from './app-notification/app-notification.modul
 import { ServculModule } from './servcul/servcul.module';
 import { AdminCaptureDevice } from './transaction/entities/admin-capture-device.entity';
 import { AdminCaptureState } from './transaction/entities/admin-capture-state.entity';
+import { SmsCapture } from './sms-capture/entities/sms-capture.entity';
+import { SmsCaptureDeviceToken } from './sms-capture/entities/sms-capture-device-token.entity';
+import { SmsCaptureModule } from './sms-capture/sms-capture.module';
 
 @Module({
   imports: [
@@ -74,6 +77,8 @@ import { AdminCaptureState } from './transaction/entities/admin-capture-state.en
       AdminCaptureDevice,
       AdminCaptureState,
       AppNotification,
+      SmsCapture,
+      SmsCaptureDeviceToken,
     ],
 
     synchronize: config.get('NODE_ENV') !== 'production',
@@ -101,6 +106,7 @@ import { AdminCaptureState } from './transaction/entities/admin-capture-state.en
     TransactionModule,
     AppNotificationModule,
     ServculModule,
+    SmsCaptureModule,
   ],
   controllers: [AppController],
   providers: [AppService],
