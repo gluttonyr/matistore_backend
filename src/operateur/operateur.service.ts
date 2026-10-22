@@ -21,7 +21,8 @@ const DEFAULT_OPERATEURS: OperateurSeed[] = [
     notification_name: 'MATI STORE',
     formatUssd: '*145*5*{montant}*1094127#',
     notificationPackageAdmin: '',
-    notificationTitleAdmin: '',
+    // SMS sender shown on the admin phone; Mati-Pay only keeps SMS from these senders.
+    notificationTitleAdmin: 'Mixx Togo',
     notificationPatternAdmin: 'Paiement de\\s+(?<montant>[\\d\\s]+)\\s+FCFA(?: effectué par\\s+(?<telephone>\\d+))?[\\s\\S]*?Ref\\s*:\\s*(?<reference>\\d+)',
   },
   {
@@ -29,7 +30,7 @@ const DEFAULT_OPERATEURS: OperateurSeed[] = [
     notification_name: 'NATI STORE NATI STORE',
     formatUssd: '*155*2*2*22896589141*22896589141*{montant}#',
     notificationPackageAdmin: '',
-    notificationTitleAdmin: '',
+    notificationTitleAdmin: 'MoovMoney',
     notificationPatternAdmin: '(?=[\\s\\S]*?Montant\\s*:\\s*(?<montant>[\\d\\s,.]+)\\s*FCFA)(?=[\\s\\S]*?Numero du client\\s*:\\s*(?<telephone>\\d+))(?=[\\s\\S]*?Txn ID\\s*:\\s*(?<reference>\\d+))',
   },
 ];
