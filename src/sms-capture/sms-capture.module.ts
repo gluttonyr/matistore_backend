@@ -6,6 +6,7 @@ import { TransactionModule } from '../transaction/transaction.module';
 import { OperateurModule } from '../operateur/operateur.module';
 import { DeviceTokenService } from './device-token.service';
 import { DeviceTokenGuard } from './device-token.guard';
+import { SmsCaptureService } from './sms-capture.service';
 import { SmsCaptureController } from './sms-capture.controller';
 import { UtilisateurModule } from '../utilisateur/utilisateur.module';
 
@@ -17,6 +18,6 @@ import { UtilisateurModule } from '../utilisateur/utilisateur.module';
     UtilisateurModule,
   ],
   controllers: [SmsCaptureController],
-  providers: [DeviceTokenService, DeviceTokenGuard],
+  providers: [SmsCaptureService, DeviceTokenService, DeviceTokenGuard],
 })
 export class SmsCaptureModule {}

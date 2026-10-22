@@ -4,6 +4,8 @@ import { ApiResponse } from '../common/api-response.interface';
 import { TransactionService } from '../transaction/transaction.service';
 import { DeviceTokenService } from './device-token.service';
 import { DeviceTokenGuard } from './device-token.guard';
+import { SmsCaptureService } from './sms-capture.service';
+import { SmsBatchDto } from './dto/sms-batch.dto';
 import { SmsDeviceDto, SmsHeartbeatDto } from './dto/sms-heartbeat.dto';
 
 @Controller('sms-capture')
@@ -11,6 +13,7 @@ export class SmsCaptureController {
   constructor(
     private readonly tokens: DeviceTokenService,
     private readonly transactions: TransactionService,
+    private readonly smsCapture: SmsCaptureService,
   ) {}
 
   @Post('device/register')
@@ -35,6 +38,13 @@ export class SmsCaptureController {
     const { adminId, deviceId } = req.device;
     const data = await this.transactions.captureHeartbeat(adminId, { deviceId: 'mati-pay-' + deviceId, ready: body.ready, reason: body.reason });
     return { data, message: 'État de capture enregistré', status: 200 };
+  }
+
+  @Post('batch')
+  @UseGuards(DeviceTokenGuard)
+  async batch(@Body() dto: SmsBatchDto, @Req() req: any): Promise<ApiResponse> {
+    const data = await this.smsCapture.ingestBatch(req.device.adminId, req.device.deviceId, dto.sms);
+    return { data, message: 'Lot traité', status: 200 };
   }
 
   private assertAdmin(req: any) {

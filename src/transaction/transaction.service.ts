@@ -22,6 +22,7 @@ import { PushDeviceService } from '../push-device/push-device.service';
 import { PushNotificationService } from '../notifications/push-notification.service';
 import { UtilisateurService } from '../utilisateur/utilisateur.service';
 import { OperateurService } from '../operateur/operateur.service';
+import { Operateur } from '../operateur/entities/operateur.entity';
 import { ServculService } from '../servcul/servcul.service';
 import { UserRole } from '../utilisateur/enums/user-role.enum';
 import { MessageGateway } from '../message/message.gatway';
@@ -452,6 +453,18 @@ export class TransactionService implements OnModuleInit, OnModuleDestroy {
       }
       throw error;
     }
+  }
+
+  extractCaptureFields(operateur: Operateur, text: string): { montant: number; reference: string; telephone: string | null } | null {
+    const groups = this.execNotificationPattern(operateur.notificationPatternAdmin, text)?.groups;
+    const montant = this.parseNotificationAmount(groups?.montant);
+    const reference = groups?.reference?.trim();
+    if (!Number.isFinite(montant) || !reference) return null;
+    return { montant, reference, telephone: groups?.telephone?.trim() || null };
+  }
+
+  findByPaymentReference(reference: string): Promise<Transaction | null> {
+    return this.repository.findByConfirmedReference(reference);
   }
 
   private execNotificationPattern(pattern: string | undefined, notification: string): RegExpExecArray | null {
