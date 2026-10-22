@@ -57,6 +57,21 @@ export class ParametreService implements OnModuleInit {
     }
 
     // ============================================================
+    // DEPOTS_FERMES
+    // ============================================================
+
+    if (!(await this.parametreRepository.findByCode(PARAMETRE_CODES.DEPOTS_FERMES))) {
+      await this.parametreRepository.save(
+        this.parametreRepository.create({
+          code: PARAMETRE_CODES.DEPOTS_FERMES,
+          libelle: 'Dépôts fermés pour tous les clients (1 = fermés, 0 = ouverts)',
+          // Created closed: deposits stay shut until an admin reopens them.
+          valeur: 1,
+        }),
+      );
+    }
+
+    // ============================================================
     // IOS_MIN_VERSION_CODE
     // ============================================================
 

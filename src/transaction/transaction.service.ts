@@ -33,6 +33,9 @@ import { ResolveCaptureReconciliationDto } from './dto/resolve-capture-reconcili
 import { RejectTransactionDto } from './dto/reject-transaction.dto';
 
 const AUTO_TIMEOUT_SECONDS = 15 * 60;
+const depositsUnavailableMessage = (closed: boolean) => closed
+  ? 'Les dépôts sont temporairement fermés. Réessayez plus tard.'
+  : 'Les dépôts sont temporairement indisponibles : la capture automatique des paiements est hors ligne. Réessayez plus tard.';
 
 export interface CaptureOptions {
   skipPackageCheck?: boolean;
@@ -83,9 +86,7 @@ export class TransactionService implements OnModuleInit, OnModuleDestroy {
     }
     if (payload.type === TransactionType.DEPOT) {
       const capture = await this.captureAvailability.getStatus();
-      if (!capture.available) {
-        throw new ServiceUnavailableException('Les dépôts sont temporairement indisponibles : la capture automatique des paiements est hors ligne. Réessayez plus tard.');
-      }
+      if (!capture.available) throw new ServiceUnavailableException(depositsUnavailableMessage(capture.depositsClosed));
     }
     if (payload.type === TransactionType.RETRAIT && !payload.codeRetrait?.trim()) {
       throw new BadRequestException('Le code de retrait est requis');
@@ -125,9 +126,7 @@ export class TransactionService implements OnModuleInit, OnModuleDestroy {
     let created: Transaction;
     if (payload.type === TransactionType.DEPOT) {
       const currentCapture = await this.captureAvailability.getStatus();
-      if (!currentCapture.available) {
-        throw new ServiceUnavailableException('Les dépôts sont temporairement indisponibles : la capture automatique des paiements est hors ligne. Réessayez plus tard.');
-      }
+      if (!currentCapture.available) throw new ServiceUnavailableException(depositsUnavailableMessage(currentCapture.depositsClosed));
       const pausedExpirationMs = await this.captureAvailability.getPausedExpirationMs();
       transactionData.capturePauseMsAtCreation = String(pausedExpirationMs);
       transactionData.captureReconciliationRequired = !currentCapture.deviceAvailable;
@@ -195,6 +194,13 @@ export class TransactionService implements OnModuleInit, OnModuleDestroy {
   }
 
   getCaptureStatus() { return this.captureAvailability.getStatus(); }
+
+  async setDepositsClosed(adminId: number, closed: boolean) {
+    await this.assertAdmin(adminId);
+    await this.captureAvailability.setDepositsClosed(closed);
+    this.logger.warn(JSON.stringify({ event: 'deposits.closed.changed', adminId, closed }));
+    return this.captureAvailability.getStatus();
+  }
 
   async captureHeartbeat(adminId: number, dto: AdminCaptureHeartbeatDto) {
     await this.assertAdmin(adminId);

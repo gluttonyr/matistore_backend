@@ -104,6 +104,19 @@ export class TransactionController {
     return { data: await this.service.captureHeartbeat(Number(req.user.userId), body), message: 'État de capture enregistré', status: 200 };
   }
 
+  // Closes (or reopens) deposits for every client, whatever the capture state.
+  @Post('capture/deposits-closed')
+  async setDepositsClosed(@Body() body: { closed: boolean }, @Req() req: any): Promise<ApiResponse> {
+    this.assertAdmin(req);
+    // No global ValidationPipe: only a real boolean may change the switch.
+    if (typeof body?.closed !== 'boolean') throw new BadRequestException('closed doit être true ou false');
+    return {
+      data: await this.service.setDepositsClosed(Number(req.user.userId), body.closed),
+      message: body.closed ? 'Dépôts fermés pour tous les clients' : 'Dépôts rouverts',
+      status: 200,
+    };
+  }
+
   @Post('capture/manual-override')
   async setCaptureOverride(@Body() body: AdminCaptureOverrideDto, @Req() req: any): Promise<ApiResponse> {
     this.assertAdmin(req);

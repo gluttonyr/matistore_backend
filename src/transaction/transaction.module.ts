@@ -16,6 +16,7 @@ import { AppNotificationModule } from '../app-notification/app-notification.modu
 import { AdminCaptureDevice } from './entities/admin-capture-device.entity';
 import { AdminCaptureState } from './entities/admin-capture-state.entity';
 import { AdminCaptureAvailabilityService } from './admin-capture-availability.service';
+import { ParametreModule } from '../parametre/parametre.module';
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import { AdminCaptureAvailabilityService } from './admin-capture-availability.se
     OperateurModule,
     ServculModule,
     AppNotificationModule,
+    ParametreModule,
   ],
   providers: [TransactionService, TransactionRepository, TransactionMapper, AdminCaptureAvailabilityService],
   controllers: [TransactionController],

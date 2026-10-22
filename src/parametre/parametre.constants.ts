@@ -2,4 +2,6 @@ export const PARAMETRE_CODES = {
   DISCUSSION_REFRESH: 'DISCUSSION_REFRESH',
   ANDROID_MIN_VERSION_CODE: 'ANDROID_MIN_VERSION_CODE',
   IOS_MIN_VERSION_CODE: 'IOS_MIN_VERSION_CODE',
+  // 1 = deposits closed for every client, whatever the capture state.
+  DEPOTS_FERMES: 'DEPOTS_FERMES',
 };

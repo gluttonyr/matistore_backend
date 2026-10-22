@@ -6,6 +6,8 @@ import { AdminCaptureState } from './entities/admin-capture-state.entity';
 import { Transaction, TransactionStatus, TransactionType } from './entities/transaction.entity';
 import { PushNotificationService } from '../notifications/push-notification.service';
 import { UtilisateurService } from '../utilisateur/utilisateur.service';
+import { ParametreService } from '../parametre/parametre.service';
+import { PARAMETRE_CODES } from '../parametre/parametre.constants';
 
 const HEARTBEAT_STALE_MS = 3 * 60_000;
 const REMINDER_INTERVAL_MS = 15 * 60_000;
@@ -23,7 +25,16 @@ export class AdminCaptureAvailabilityService implements OnModuleInit, OnModuleDe
     @InjectRepository(Transaction) private readonly transactions: Repository<Transaction>,
     private readonly push: PushNotificationService,
     private readonly users: UtilisateurService,
+    private readonly parametres: ParametreService,
   ) {}
+
+  async depositsClosed(): Promise<boolean> {
+    return Number(await this.parametres.getValue(PARAMETRE_CODES.DEPOTS_FERMES)) === 1;
+  }
+
+  setDepositsClosed(closed: boolean) {
+    return this.parametres.update(PARAMETRE_CODES.DEPOTS_FERMES, { valeur: closed ? 1 : 0 });
+  }
 
   onModuleInit() {
     this.pollHandle = setInterval(() => {
@@ -112,11 +123,14 @@ export class AdminCaptureAvailabilityService implements OnModuleInit, OnModuleDe
     const failureReason = activeDevice
       ? null
       : recentFailure[0]?.failureReason ?? 'silent';
+    // The admin switch wins over everything: clients see deposits unavailable.
+    const depositsClosed = await this.depositsClosed();
     return {
-      available: effectiveAvailable,
+      available: effectiveAvailable && !depositsClosed,
+      depositsClosed,
       deviceAvailable,
       manualOverride: state.manualOverride,
-      reason: state.manualOverride && !deviceAvailable ? 'manual_override' : failureReason,
+      reason: depositsClosed ? 'deposits_closed' : state.manualOverride && !deviceAvailable ? 'manual_override' : failureReason,
       lastHeartbeatAt: activeDevice?.lastHeartbeatAt ?? recentFailure[0]?.lastHeartbeatAt ?? null,
       consecutiveHealthySignalsRequired: 2,
       heartbeatIntervalSeconds: 60,
