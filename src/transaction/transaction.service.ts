@@ -232,6 +232,7 @@ export class TransactionService implements OnModuleInit, OnModuleDestroy {
 
   findAdminPage(page: number, limit: number, filters: {
     search?: string; type?: TransactionType; status?: TransactionStatus; discussionId?: string;
+    captureReconciliation?: boolean; open?: boolean;
   }) {
     return this.repository.findAdminPage(page, limit, filters);
   }

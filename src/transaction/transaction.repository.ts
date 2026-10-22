@@ -26,6 +26,7 @@ export class TransactionRepository extends Repository<Transaction> {
 
   async findAdminPage(page: number, limit: number, filters: {
     search?: string; type?: TransactionType; status?: TransactionStatus; discussionId?: string;
+    captureReconciliation?: boolean; open?: boolean;
   }) {
     const query = this.pageQuery();
     // TypeORM turns joined pagination into a DISTINCT subquery. Keep the custom
@@ -38,6 +39,12 @@ export class TransactionRepository extends Repository<Transaction> {
     if (filters.discussionId) query.andWhere('transaction.discussionTrackingId = :discussionId', { discussionId: filters.discussionId });
     if (filters.type) query.andWhere('transaction.type = :type', { type: filters.type });
     if (filters.status) query.andWhere('transaction.statut = :status', { status: filters.status });
+    if (filters.captureReconciliation) query.andWhere('transaction.captureReconciliationRequired = true');
+    if (filters.open) {
+      query.andWhere('transaction.statut IN (:...openStatuses)', {
+        openStatuses: [TransactionStatus.EN_ATTENTE_AUTO, TransactionStatus.EN_VERIFICATION, TransactionStatus.EN_ATTENTE_PREUVE],
+      });
+    }
     if (filters.search?.trim()) {
       const search = `%${filters.search.trim().replace(/[\\%_]/g, '\\$&')}%`;
       query.andWhere(

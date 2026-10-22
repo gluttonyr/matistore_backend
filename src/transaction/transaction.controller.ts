@@ -27,6 +27,8 @@ export class TransactionController {
     @Query('type') typeQuery?: string,
     @Query('status') statusQuery?: string,
     @Query('discussionId') discussionId?: string,
+    @Query('captureReconciliation') captureReconciliationQuery?: string,
+    @Query('open') openQuery?: string,
   ): Promise<ApiResponse> {
     this.assertAdmin(req);
     if (pageQuery === undefined && limitQuery === undefined) {
@@ -47,7 +49,11 @@ export class TransactionController {
       : undefined;
     if (typeQuery && !type) throw new BadRequestException('Type de transaction invalide');
     if (statusQuery && !status) throw new BadRequestException('Statut de transaction invalide');
-    const result = await this.service.findAdminPage(page, limit, { search, type, status, discussionId });
+    const result = await this.service.findAdminPage(page, limit, {
+      search, type, status, discussionId,
+      captureReconciliation: captureReconciliationQuery === 'true',
+      open: openQuery === 'true',
+    });
     return {
       data: {
         items: this.mapper.toResponseList(result.transactions),

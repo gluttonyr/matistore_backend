@@ -27,3 +27,32 @@ describe('TransactionRepository.markDepositAsVerified', () => {
     expect(save).toHaveBeenCalled();
   });
 });
+
+describe('TransactionRepository.findAdminPage filters', () => {
+  const run = async (filters: any) => {
+    const query: any = {
+      addSelect: jest.fn().mockReturnThis(), andWhere: jest.fn().mockReturnThis(),
+      orderBy: jest.fn().mockReturnThis(), addOrderBy: jest.fn().mockReturnThis(),
+      skip: jest.fn().mockReturnThis(), take: jest.fn().mockReturnThis(),
+      getMany: jest.fn(async () => []), getCount: jest.fn(async () => 0),
+    };
+    query.clone = () => query;
+    const repo: any = new TransactionRepository({ createEntityManager: () => ({}) } as any);
+    repo.pageQuery = () => query;
+    repo.count = jest.fn(async () => 0);
+    await repo.findAdminPage(1, 25, filters);
+    return query.andWhere.mock.calls.map((c: any[]) => c[0]);
+  };
+
+  it('adds no extra condition when the new filters are absent', async () => {
+    expect(await run({})).toEqual([]);
+  });
+
+  it('filters on reconciliation and open statuses', async () => {
+    const where = await run({ captureReconciliation: true, open: true });
+    expect(where).toEqual([
+      'transaction.captureReconciliationRequired = true',
+      'transaction.statut IN (:...openStatuses)',
+    ]);
+  });
+});
