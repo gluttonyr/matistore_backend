@@ -483,6 +483,90 @@ describe('TransactionService automatic deposit verification', () => {
     expect(repository.requireCaptureReconciliation).not.toHaveBeenCalled();
   });
 
+  describe('SMS capture options', () => {
+    const H = 3600_000;
+    const T = new Date('2026-10-21T14:00:00.000Z').getTime();
+    const smsAt = T + 5 * 60_000;
+    const dto = (postedAt = smsAt) => ({
+      operateur: 'TMoney',
+      montant: 1000,
+      notificationPostedAt: postedAt,
+      numeroTelephoneClient: '22890000000',
+      notificationBrute: 'MATI STORE Paiement de 1 000 FCFA effectué par 22890000000 Ref: 123456',
+      packageNotification: 'com.android.messaging',
+      titreNotification: 'TMoney Paiement',
+    });
+    const smsOptions = { candidateWindowMs: 24 * H, includeAutoRejected: true, skipPackageCheck: true };
+    const deposit = (trackingId: string, createdAt: number, extra: Partial<Transaction> = {}) =>
+      Object.assign(pendingDeposit(), { trackingId, createdAt: new Date(createdAt) }, extra);
+
+    beforeEach(() => repository.markDepositAsVerified.mockResolvedValue(null));
+
+    it('sms window: validates a deposit auto-rejected at 15 min when the SMS was received 5 min after it', async () => {
+      repository.findOpenCandidates.mockResolvedValue([
+        deposit('rejected', T, { statut: TransactionStatus.REJETEE, validePar: undefined }),
+      ]);
+
+      await service.processAdminCapture(dto(), 99, smsOptions);
+
+      expect(repository.findOpenCandidates).toHaveBeenCalledWith(
+        'TMoney', 1000, new Date(smsAt - 24 * H), new Date(smsAt), true,
+      );
+      expect(repository.markDepositAsVerified).toHaveBeenCalledWith('rejected', '123456', expect.any(String), true);
+    });
+
+    it('sms window: picks the most recent deposit of the same client created before the SMS', async () => {
+      repository.findOpenCandidates.mockResolvedValue([
+        deposit('old-rejected', T - 3 * H, { statut: TransactionStatus.REJETEE }),
+        deposit('recent-open', T - 60_000),
+      ]);
+
+      await service.processAdminCapture(dto(), 99, smsOptions);
+
+      expect(repository.markDepositAsVerified).toHaveBeenCalledWith('recent-open', '123456', expect.any(String), true);
+    });
+
+    it('sms window: a deposit created 24h01 before the SMS is not a candidate; 23h59 is', async () => {
+      repository.findOpenCandidates.mockResolvedValue([deposit('too-old', smsAt - 24 * H - 60_000)]);
+      const tooOld = await service.processAdminCapture(dto(), 99, smsOptions);
+      expect(tooOld.matched).toBe(false);
+      expect(repository.markDepositAsVerified).not.toHaveBeenCalled();
+
+      repository.findOpenCandidates.mockResolvedValue([deposit('in-window', smsAt - 24 * H + 60_000)]);
+      await service.processAdminCapture(dto(), 99, smsOptions);
+      expect(repository.markDepositAsVerified).toHaveBeenCalledWith('in-window', '123456', expect.any(String), true);
+    });
+
+    it('sms window: skips the package check only when asked', async () => {
+      repository.findOpenCandidates.mockResolvedValue([]);
+      const noPackage = { ...dto(), packageNotification: undefined };
+
+      const skipped = await service.processAdminCapture(noPackage, 99, { skipPackageCheck: true });
+      const checked = await service.processAdminCapture(noPackage, 99);
+
+      expect(skipped.reason).not.toContain('Package reçu');
+      expect(checked.reason).toContain('Package reçu');
+    });
+
+    it('admin-capture without options keeps the 15 min window', async () => {
+      repository.findOpenCandidates.mockResolvedValue([]);
+
+      await service.processAdminCapture(dto(), 99);
+
+      expect(repository.findOpenCandidates).toHaveBeenCalledWith(
+        'TMoney', 1000, new Date(smsAt - 15 * 60_000), new Date(smsAt), false,
+      );
+    });
+
+    it('returns duplicateReference when the reference is already confirmed', async () => {
+      repository.findByConfirmedReference.mockResolvedValue(pendingDeposit());
+
+      const result = await service.processAdminCapture(dto(), 99);
+
+      expect(result).toEqual(expect.objectContaining({ matched: false, duplicateReference: true }));
+    });
+  });
+
   it('silently rejects deposits awaiting reconciliation for more than 25 hours', async () => {
     const stale = Object.assign(pendingDeposit(), { captureReconciliationRequired: true });
     repository.findStaleReconciliation.mockResolvedValue([stale]);

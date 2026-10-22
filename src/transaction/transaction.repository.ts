@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { DataSource, In, MoreThan, Repository } from 'typeorm';
+import { Brackets, DataSource, In, MoreThan, Repository } from 'typeorm';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { Transaction, TransactionStatus, TransactionType, ValidationMethod } from './entities/transaction.entity';
 import { User } from '../utilisateur/entities/user.entity';
@@ -249,18 +249,28 @@ export class TransactionRepository extends Repository<Transaction> {
     trackingId: string,
     referencePaiement: string,
     notificationBrute: string,
+    allowAutoRejected = false,
   ) {
     return this.manager.transaction(async (manager) => {
       const repository = manager.getRepository(Transaction);
       const transaction = await repository.findOne({
         where: { trackingId },
-        relations: { user: true },
+        relations: { user: true, validePar: true },
         lock: { mode: 'pessimistic_write' },
       });
+      // Only an automatic rejection (no admin, no payment reference) may be reopened by a late SMS.
+      const reopenable = allowAutoRejected
+        && transaction?.statut === TransactionStatus.REJETEE
+        && !transaction.validePar
+        && !transaction.referencePaiement;
       if (!transaction
         || transaction.type !== TransactionType.DEPOT
-        || ![TransactionStatus.EN_ATTENTE_AUTO, TransactionStatus.EN_VERIFICATION].includes(transaction.statut)) {
+        || (!reopenable && ![TransactionStatus.EN_ATTENTE_AUTO, TransactionStatus.EN_VERIFICATION].includes(transaction.statut))) {
         return null;
+      }
+      if (reopenable) {
+        transaction.motifRejet = null;
+        transaction.dateValidation = null as unknown as Date;
       }
 
       transaction.referencePaiement = referencePaiement;
@@ -530,21 +540,30 @@ export class TransactionRepository extends Repository<Transaction> {
     });
   }
 
-  findOpenCandidates(operateur: string, montant: number, since: Date, notificationPostedAt: Date) {
+  findOpenCandidates(operateur: string, montant: number, since: Date, notificationPostedAt: Date, includeAutoRejected = false) {
     return this.createQueryBuilder('t')
       .innerJoinAndSelect('t.user', 'user')
       .where('LOWER(t.operateur) = LOWER(:operateur)', { operateur })
       .andWhere('t.type = :type', { type: TransactionType.DEPOT })
       .andWhere('t.montant = :montant', { montant })
       .andWhere('t.createdAt <= :notificationPostedAt', { notificationPostedAt })
-      .andWhere('t.statut IN (:...statuts)', {
-          statuts: [
-            TransactionStatus.EN_ATTENTE_AUTO,
-            TransactionStatus.EN_VERIFICATION,
-            TransactionStatus.EN_ATTENTE_PREUVE,
-          ],
-      })
-      .andWhere('(t.createdAt >= :since OR t.capture_reconciliation_required = true)', { since })
+      .andWhere(new Brackets((qb) => {
+        qb.where(new Brackets((open) => {
+          open.where('t.statut IN (:...statuts)', {
+            statuts: [
+              TransactionStatus.EN_ATTENTE_AUTO,
+              TransactionStatus.EN_VERIFICATION,
+              TransactionStatus.EN_ATTENTE_PREUVE,
+            ],
+          }).andWhere('(t.createdAt >= :since OR t.capture_reconciliation_required = true)', { since });
+        }));
+        if (includeAutoRejected) {
+          qb.orWhere(
+            't.statut = :rejected AND t.validated_by_id IS NULL AND t.referencePaiement IS NULL AND t.createdAt >= :since',
+            { rejected: TransactionStatus.REJETEE, since },
+          );
+        }
+      }))
       .orderBy('t.createdAt', 'ASC')
       .getMany();
   }

@@ -32,6 +32,12 @@ import { ResolveCaptureReconciliationDto } from './dto/resolve-capture-reconcili
 import { RejectTransactionDto } from './dto/reject-transaction.dto';
 
 const AUTO_TIMEOUT_SECONDS = 15 * 60;
+
+export interface CaptureOptions {
+  skipPackageCheck?: boolean;
+  candidateWindowMs?: number;
+  includeAutoRejected?: boolean;
+}
 const RECONCILIATION_TIMEOUT_MS = 25 * 60 * 60 * 1000;
 const AUTO_TIMEOUT_POLL_MS = 5_000;
 
@@ -264,6 +270,7 @@ export class TransactionService implements OnModuleInit, OnModuleDestroy {
   async processAdminCapture(
     dto: AdminCaptureDto,
     adminId: number,
+    options: CaptureOptions = {},
   ): Promise<{
     matched: boolean;
     retryable: boolean;
@@ -273,6 +280,7 @@ export class TransactionService implements OnModuleInit, OnModuleDestroy {
     extracted?: { montant: number | null; reference: string | null; telephone: string | null };
     transactionSelection?: 'most_recent' | 'unique_match' | 'manual_reconciliation';
     creditSucceeded?: boolean;
+    duplicateReference?: boolean;
   }> {
     await this.assertAdmin(adminId);
     const operateur = await this.operateurService.findByNom(dto.operateur);
@@ -282,7 +290,7 @@ export class TransactionService implements OnModuleInit, OnModuleDestroy {
 
     const expectedPackage = operateur.notificationPackageAdmin?.trim();
     const receivedPackage = dto.packageNotification?.trim();
-    if (expectedPackage && expectedPackage !== receivedPackage) {
+    if (!options.skipPackageCheck && expectedPackage && expectedPackage !== receivedPackage) {
       this.logger.warn(JSON.stringify({ event: 'admin.capture.package-mismatch', operateur: operateur.nom }));
       return {
         matched: false,
@@ -339,16 +347,20 @@ export class TransactionService implements OnModuleInit, OnModuleDestroy {
         message: 'Cette transaction a déjà été enregistrée.',
         reason: 'La référence de paiement est déjà enregistrée.',
         extracted,
+        duplicateReference: true,
       };
     }
 
     const notificationPostedAt = new Date(dto.notificationPostedAt ?? Date.now());
-    const since = new Date(notificationPostedAt.getTime() - AUTO_TIMEOUT_SECONDS * 1000);
+    const freshSince = new Date(notificationPostedAt.getTime() - AUTO_TIMEOUT_SECONDS * 1000);
+    const since = new Date(notificationPostedAt.getTime() - (options.candidateWindowMs ?? AUTO_TIMEOUT_SECONDS * 1000));
+    const includeAutoRejected = options.includeAutoRejected ?? false;
     let candidates = await this.repository.findOpenCandidates(
       operateur.nom,
       dto.montant,
       since,
       notificationPostedAt,
+      includeAutoRejected,
     );
     candidates = candidates.filter((candidate) =>
       candidate.createdAt <= notificationPostedAt
@@ -364,7 +376,7 @@ export class TransactionService implements OnModuleInit, OnModuleDestroy {
     // An old flagged deposit must not block the client's fresh one: the live notification belongs to the deposit
     // created within the window. When every candidate belongs to one client, the credit goes to the right person
     // whichever deposit is picked; only candidates from different clients need an administrator.
-    const fresh = candidates.filter((candidate) => !candidate.captureReconciliationRequired && candidate.createdAt >= since);
+    const fresh = candidates.filter((candidate) => !candidate.captureReconciliationRequired && candidate.createdAt >= freshSince);
     const singleClient = (list: Transaction[]) => new Set(list.map((candidate) => candidate.user?.id)).size === 1;
     if (fresh.length > 0 && singleClient(fresh)) {
       candidates = fresh;
@@ -406,6 +418,7 @@ export class TransactionService implements OnModuleInit, OnModuleDestroy {
         selectedCandidate.trackingId,
         reference,
         dto.notificationBrute,
+        { allowAutoRejected: includeAutoRejected },
       );
       if (!saved.transaction) return debugResult(false, false, 'La transaction a changé d’état avant son enregistrement.');
       this.logger.log(JSON.stringify({
@@ -434,6 +447,7 @@ export class TransactionService implements OnModuleInit, OnModuleDestroy {
           message: 'Cette transaction a déjà été enregistrée.',
           reason: 'La référence de paiement est déjà enregistrée (conflit détecté lors de la sauvegarde).',
           extracted,
+          duplicateReference: true,
         };
       }
       throw error;
@@ -473,8 +487,11 @@ export class TransactionService implements OnModuleInit, OnModuleDestroy {
     trackingId: string,
     reference: string,
     notification: string,
+    opts: { allowAutoRejected?: boolean; validationMethod?: ValidationMethod } = {},
   ): Promise<{ transaction: Transaction | null; credited: boolean }> {
-    const saved = await this.repository.markDepositAsVerified(trackingId, reference, notification);
+    const saved = opts.allowAutoRejected
+      ? await this.repository.markDepositAsVerified(trackingId, reference, notification, true)
+      : await this.repository.markDepositAsVerified(trackingId, reference, notification);
     if (!saved) return { transaction: null, credited: false };
 
     await this.postSystemMessage(
@@ -486,7 +503,7 @@ export class TransactionService implements OnModuleInit, OnModuleDestroy {
       const completed = await this.repository.completeAutomaticTransaction(
         trackingId,
         (transaction) => this.executeServculTransaction(transaction),
-        ValidationMethod.AUTO_NOTIFICATION,
+        opts.validationMethod ?? ValidationMethod.AUTO_NOTIFICATION,
         [TransactionStatus.EN_VERIFICATION],
       );
       if (!completed) {
