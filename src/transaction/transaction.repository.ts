@@ -262,13 +262,18 @@ export class TransactionRepository extends Repository<Transaction> {
       const repository = manager.getRepository(Transaction);
       const transaction = await repository.findOne({
         where: { trackingId },
-        relations: { user: true, validePar: true },
+        relations: { user: true },
         lock: { mode: 'pessimistic_write' },
       });
+      // validePar is read apart, once the row is locked: Postgres refuses FOR UPDATE across the
+      // nullable LEFT JOIN that loading it would add.
+      const rejectedByAdmin = allowAutoRejected && transaction?.statut === TransactionStatus.REJETEE
+        ? !!(await repository.findOne({ where: { trackingId }, relations: { validePar: true } }))?.validePar
+        : false;
       // Only an automatic rejection (no admin, no payment reference) may be reopened by a late SMS.
       const reopenable = allowAutoRejected
         && transaction?.statut === TransactionStatus.REJETEE
-        && !transaction.validePar
+        && !rejectedByAdmin
         && !transaction.referencePaiement;
       if (!transaction
         || transaction.type !== TransactionType.DEPOT

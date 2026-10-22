@@ -4,6 +4,7 @@ import { createHash } from 'crypto';
 
 describe('DeviceTokenService', () => {
   let rows: any[];
+  let tick = 0;
   let user: any;
   let service: DeviceTokenService;
 
@@ -11,7 +12,7 @@ describe('DeviceTokenService', () => {
     rows = [];
     user = { id: 1, role: 'ADMIN', active: true };
     const repo: any = {
-      create: (x: any) => ({ revokedAt: null, lastUsedAt: null, createdAt: new Date(Date.now() + rows.length), ...x }),
+      create: (x: any) => ({ revokedAt: null, lastUsedAt: null, createdAt: new Date(1_700_000_000_000 + ++tick), ...x }),
       save: async (x: any) => {
         if (!rows.includes(x)) rows.push(x);
         return x;
