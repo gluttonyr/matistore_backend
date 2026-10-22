@@ -108,7 +108,7 @@ export class SmsCaptureService {
       .andWhere('LOWER(sms.operateur) = LOWER(:operateur)', { operateur: t.operateur })
       .orderBy('ABS(EXTRACT(EPOCH FROM (sms.receivedAt - :txDate)))', 'ASC')
       .setParameters({ txDate: t.createdAt })
-      .take(50)
+      .limit(50)
       .getMany();
     return rows.map(toResponse);
   }

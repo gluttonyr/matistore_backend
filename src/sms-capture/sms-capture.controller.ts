@@ -1,5 +1,5 @@
 import { SmsCandidatesQueryDto, SmsListQueryDto } from './dto/sms-query.dto';
-import { Body, Controller, ForbiddenException, Get, Param, Post, Query, Req, UseGuards, UsePipes, ValidationPipe } from '@nestjs/common';
+import { Body, Controller, ForbiddenException, Get, Param, ParseUUIDPipe, Post, Query, Req, UseGuards, UsePipes, ValidationPipe } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiResponse } from '../common/api-response.interface';
 import { TransactionService } from '../transaction/transaction.service';
@@ -67,7 +67,7 @@ export class SmsCaptureController {
 
   @Get(':id')
   @UseGuards(AuthGuard('jwt'))
-  async detail(@Param('id') id: string, @Req() req: any): Promise<ApiResponse> {
+  async detail(@Param('id', new ParseUUIDPipe()) id: string, @Req() req: any): Promise<ApiResponse> {
     await this.assertActiveAdmin(req);
     return { data: await this.smsCapture.detail(id), message: 'SMS récupéré', status: 200 };
   }

@@ -118,7 +118,7 @@ describe('SmsCaptureService consultation', () => {
 
   beforeEach(() => {
     qb = {};
-    for (const m of ['leftJoinAndSelect', 'andWhere', 'orderBy', 'addOrderBy', 'skip', 'take', 'setParameters']) qb[m] = jest.fn().mockReturnValue(qb);
+    for (const m of ['leftJoinAndSelect', 'andWhere', 'orderBy', 'addOrderBy', 'skip', 'take', 'limit', 'setParameters']) qb[m] = jest.fn().mockReturnValue(qb);
     qb.getManyAndCount = jest.fn().mockResolvedValue([[], 0]);
     qb.getMany = jest.fn().mockResolvedValue([]);
     repo = { createQueryBuilder: jest.fn().mockReturnValue(qb), count: jest.fn() };
@@ -135,7 +135,7 @@ describe('SmsCaptureService consultation', () => {
     expect(qb.andWhere.mock.calls.map((c: any[]) => c[1]).reduce((a: any, b: any) => ({ ...a, ...b }), {}))
       .toMatchObject({ attribue: SmsCaptureStatus.ATTRIBUE, montant: 5000, operateur: 'Mixx' });
     expect(qb.orderBy.mock.calls[0][0]).toMatch(/ABS\(EXTRACT\(EPOCH FROM \(sms\.receivedAt - :txDate\)\)\)/);
-    expect(qb.take).toHaveBeenCalledWith(50);
+    expect(qb.limit).toHaveBeenCalledWith(50);
   });
 
   it('search with a number also matches the amount', async () => {
