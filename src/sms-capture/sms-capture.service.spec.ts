@@ -108,3 +108,53 @@ describe('SmsCaptureService.ingestBatch', () => {
     expect(res[2].error).toBeUndefined();
   });
 });
+
+describe('SmsCaptureService consultation', () => {
+  let qb: any;
+  let repo: any;
+  let tx: any;
+  let service: SmsCaptureService;
+  const txRow = { trackingId: 'T1', montant: 5000, operateur: 'Mixx', createdAt: new Date('2026-01-01T10:00:00Z') };
+
+  beforeEach(() => {
+    qb = {};
+    for (const m of ['leftJoinAndSelect', 'andWhere', 'orderBy', 'addOrderBy', 'skip', 'take', 'setParameters']) qb[m] = jest.fn().mockReturnValue(qb);
+    qb.getManyAndCount = jest.fn().mockResolvedValue([[], 0]);
+    qb.getMany = jest.fn().mockResolvedValue([]);
+    repo = { createQueryBuilder: jest.fn().mockReturnValue(qb), count: jest.fn() };
+    tx = { findById: jest.fn().mockResolvedValue(txRow) };
+    service = new SmsCaptureService(repo, tx, {} as any);
+  });
+
+  it('candidates exclude ATTRIBUE and other amounts and are ordered by date proximity', async () => {
+    await service.candidates('T1');
+    const wheres = qb.andWhere.mock.calls.map((c: any[]) => c[0]).join(' ');
+    expect(wheres).toContain('sms.statut != :attribue');
+    expect(wheres).toContain('sms.montant = :montant');
+    expect(wheres).toContain('LOWER(sms.operateur) = LOWER(:operateur)');
+    expect(qb.andWhere.mock.calls.map((c: any[]) => c[1]).reduce((a: any, b: any) => ({ ...a, ...b }), {}))
+      .toMatchObject({ attribue: SmsCaptureStatus.ATTRIBUE, montant: 5000, operateur: 'Mixx' });
+    expect(qb.orderBy.mock.calls[0][0]).toMatch(/ABS\(EXTRACT\(EPOCH FROM \(sms\.receivedAt - :txDate\)\)\)/);
+    expect(qb.take).toHaveBeenCalledWith(50);
+  });
+
+  it('search with a number also matches the amount', async () => {
+    await service.list({ page: 1, limit: 20, search: '5_00' });
+    expect(qb.andWhere.mock.calls.at(-1)[0]).not.toContain('sms.montant = :montant');
+    expect(qb.andWhere.mock.calls.at(-1)[1].search).toBe('%5\\_00%');
+    qb.andWhere.mockClear();
+    repo.count.mockResolvedValue(0);
+    await service.list({ page: 1, limit: 20, search: '5000' });
+    expect(qb.andWhere.mock.calls.at(-1)[0]).toContain('sms.montant = :montant');
+    expect(qb.andWhere.mock.calls.at(-1)[1].montant).toBe(5000);
+  });
+
+  it('counts return SANS_TRANSACTION and A_RAPPROCHER totals', async () => {
+    repo.count.mockImplementation(async ({ where }: any) => (where.statut === SmsCaptureStatus.SANS_TRANSACTION ? 3 : 2));
+    qb.getManyAndCount.mockResolvedValue([[], 9]);
+    const r = await service.list({ page: 2, limit: 5 });
+    expect(r).toMatchObject({ items: [], total: 9, counts: { SANS_TRANSACTION: 3, A_RAPPROCHER: 2 } });
+    expect(qb.skip).toHaveBeenCalledWith(5);
+    expect(qb.orderBy).toHaveBeenCalledWith('sms.receivedAt', 'DESC');
+  });
+});

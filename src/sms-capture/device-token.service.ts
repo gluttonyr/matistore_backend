@@ -32,7 +32,7 @@ export class DeviceTokenService {
     await this.repo.update({ adminId, deviceId, revokedAt: IsNull() }, { revokedAt: new Date() });
   }
 
-  private async assertActiveAdmin(adminId: number): Promise<void> {
+  async assertActiveAdmin(adminId: number): Promise<void> {
     const admin = await this.users.findUserById(adminId);
     if (!admin || admin.role !== UserRole.ADMIN || !admin.active) {
       throw new ForbiddenException('Seul un administrateur actif peut traiter cette opération');

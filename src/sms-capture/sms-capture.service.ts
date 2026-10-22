@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { TransactionService } from '../transaction/transaction.service';
@@ -6,6 +6,7 @@ import { OperateurService } from '../operateur/operateur.service';
 import { SmsAttributionOrigin, SmsCapture, SmsCaptureStatus } from './entities/sms-capture.entity';
 import { SmsItemDto } from './dto/sms-batch.dto';
 import { smsFingerprint } from './sms-fingerprint';
+import { SmsListQueryDto } from './dto/sms-query.dto';
 
 export interface SmsIngestResult {
   fingerprint: string;
@@ -17,6 +18,25 @@ export interface SmsIngestResult {
 }
 
 const WINDOW_MS = 24 * 3600_000;
+
+const fullName = (u?: { prenom?: string; nom?: string } | null) => (u ? `${u.prenom ?? ''} ${u.nom ?? ''}`.trim() : null);
+
+// fingerprint and deviceId are internal and never exposed.
+function toResponse(row: SmsCapture) {
+  const { fingerprint, deviceId, transaction, attribuePar, ...rest } = row;
+  return {
+    ...rest,
+    transaction: transaction && {
+      trackingId: transaction.trackingId,
+      statut: transaction.statut,
+      montant: transaction.montant,
+      numeroTelephone: transaction.numeroTelephone,
+      createdAt: transaction.createdAt,
+      client: fullName(transaction.user),
+    },
+    attribuePar: fullName(attribuePar),
+  };
+}
 
 @Injectable()
 export class SmsCaptureService {
@@ -38,6 +58,59 @@ export class SmsCaptureService {
       }
     }
     return results;
+  }
+
+  private baseQuery() {
+    return this.repo
+      .createQueryBuilder('sms')
+      .leftJoinAndSelect('sms.transaction', 'tx')
+      .leftJoinAndSelect('tx.user', 'client')
+      .leftJoinAndSelect('sms.attribuePar', 'admin');
+  }
+
+  async list(q: SmsListQueryDto) {
+    const { page, limit } = q;
+    const query = this.baseQuery();
+    if (q.statut) query.andWhere('sms.statut = :statut', { statut: q.statut });
+    if (q.transactionId) query.andWhere('tx.trackingId = :transactionId', { transactionId: q.transactionId });
+    const term = q.search?.trim();
+    if (term) {
+      const search = `%${term.replace(/[\\%_]/g, '\\$&')}%`;
+      const numeric = /^\d+$/.test(term);
+      query.andWhere(
+        `(sms.reference ILIKE :search OR sms.telephone ILIKE :search OR sms.corps ILIKE :search${numeric ? ' OR sms.montant = :montant' : ''})`,
+        numeric ? { search, montant: Number(term) } : { search },
+      );
+    }
+    const [[rows, total], sansTransaction, aRapprocher] = await Promise.all([
+      query.orderBy('sms.receivedAt', 'DESC').skip((page - 1) * limit).take(limit).getManyAndCount(),
+      this.repo.count({ where: { statut: SmsCaptureStatus.SANS_TRANSACTION } }),
+      this.repo.count({ where: { statut: SmsCaptureStatus.A_RAPPROCHER } }),
+    ]);
+    return {
+      items: rows.map(toResponse),
+      total,
+      counts: { SANS_TRANSACTION: sansTransaction, A_RAPPROCHER: aRapprocher },
+    };
+  }
+
+  async detail(id: string) {
+    const row = await this.baseQuery().andWhere('sms.trackingId = :id', { id }).getOne();
+    if (!row) throw new NotFoundException('SMS introuvable');
+    return toResponse(row);
+  }
+
+  async candidates(transactionId: string) {
+    const t = await this.transactions.findById(transactionId);
+    const rows = await this.baseQuery()
+      .andWhere('sms.statut != :attribue', { attribue: SmsCaptureStatus.ATTRIBUE })
+      .andWhere('sms.montant = :montant', { montant: t.montant })
+      .andWhere('LOWER(sms.operateur) = LOWER(:operateur)', { operateur: t.operateur })
+      .orderBy('ABS(EXTRACT(EPOCH FROM (sms.receivedAt - :txDate)))', 'ASC')
+      .setParameters({ txDate: t.createdAt })
+      .take(50)
+      .getMany();
+    return rows.map(toResponse);
   }
 
   private toResult(row: SmsCapture, fingerprint: string): SmsIngestResult {

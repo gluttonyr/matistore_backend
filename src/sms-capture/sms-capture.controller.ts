@@ -1,4 +1,5 @@
-import { Body, Controller, ForbiddenException, Post, Req, UseGuards, UsePipes, ValidationPipe } from '@nestjs/common';
+import { SmsCandidatesQueryDto, SmsListQueryDto } from './dto/sms-query.dto';
+import { Body, Controller, ForbiddenException, Get, Param, Post, Query, Req, UseGuards, UsePipes, ValidationPipe } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiResponse } from '../common/api-response.interface';
 import { TransactionService } from '../transaction/transaction.service';
@@ -47,6 +48,33 @@ export class SmsCaptureController {
   async batch(@Body() dto: SmsBatchDto, @Req() req: any): Promise<ApiResponse> {
     const data = await this.smsCapture.ingestBatch(req.device.adminId, req.device.deviceId, dto.sms);
     return { data, message: 'Lot traité', status: 200 };
+  }
+
+  // candidates must stay declared before :id.
+  @Get('candidates')
+  @UseGuards(AuthGuard('jwt'))
+  async candidates(@Query() q: SmsCandidatesQueryDto, @Req() req: any): Promise<ApiResponse> {
+    await this.assertActiveAdmin(req);
+    return { data: await this.smsCapture.candidates(q.transactionId), message: 'Candidats récupérés', status: 200 };
+  }
+
+  @Get()
+  @UseGuards(AuthGuard('jwt'))
+  async list(@Query() q: SmsListQueryDto, @Req() req: any): Promise<ApiResponse> {
+    await this.assertActiveAdmin(req);
+    return { data: await this.smsCapture.list(q), message: 'SMS récupérés', status: 200 };
+  }
+
+  @Get(':id')
+  @UseGuards(AuthGuard('jwt'))
+  async detail(@Param('id') id: string, @Req() req: any): Promise<ApiResponse> {
+    await this.assertActiveAdmin(req);
+    return { data: await this.smsCapture.detail(id), message: 'SMS récupéré', status: 200 };
+  }
+
+  private async assertActiveAdmin(req: any) {
+    this.assertAdmin(req);
+    await this.tokens.assertActiveAdmin(Number(req.user.userId));
   }
 
   private assertAdmin(req: any) {
