@@ -6,7 +6,8 @@ import { PushNotificationService } from '../notifications/push-notification.serv
 import { PushDeviceService } from '../push-device/push-device.service';
 import { UtilisateurService } from '../utilisateur/utilisateur.service';
 import { DiscussionService } from '../discussion/discussion.service';
-import { Transaction, TransactionStatus, TransactionType } from './entities/transaction.entity';
+import { Transaction, TransactionStatus, TransactionType, ValidationMethod } from './entities/transaction.entity';
+import { ConflictException } from '@nestjs/common';
 import { TransactionRepository } from './transaction.repository';
 import { TransactionService } from './transaction.service';
 import { ServculService } from '../servcul/servcul.service';
@@ -31,6 +32,8 @@ describe('TransactionService automatic deposit verification', () => {
     cancelPendingDeposit: jest.Mock;
     validateAdminTransaction: jest.Mock;
     rejectExpiredDeposit: jest.Mock;
+    completeAutomaticTransaction: jest.Mock;
+    update: jest.Mock;
   };
   let operatorService: { findByNom: jest.Mock };
   let servculService: { findPlayer: jest.Mock; addPlayerDeposit: jest.Mock };
@@ -97,6 +100,8 @@ describe('TransactionService automatic deposit verification', () => {
       cancelPendingDeposit: jest.fn(),
       validateAdminTransaction: jest.fn(),
       rejectExpiredDeposit: jest.fn(),
+      completeAutomaticTransaction: jest.fn(),
+      update: jest.fn().mockResolvedValue(undefined),
     };
     operatorService = { findByNom: jest.fn().mockResolvedValue(operator) };
     servculService = {
@@ -481,6 +486,79 @@ describe('TransactionService automatic deposit verification', () => {
 
     expect(repository.markDepositAsVerified).toHaveBeenCalledWith('deposit-flagged', '123456', expect.any(String));
     expect(repository.requireCaptureReconciliation).not.toHaveBeenCalled();
+  });
+
+  describe('assignSmsManually', () => {
+    const sms = { reference: 'R1', corps: 'body', montant: 1000, telephone: '22890000000' };
+    const deposit = (extra: Partial<Transaction> = {}) => Object.assign(pendingDeposit(), extra);
+    const assign = (confirm = false, s = sms) => service.assignSmsManually('deposit-1', s, 99, confirm);
+    beforeEach(() => {
+      repository.findByTrackingId.mockResolvedValue(deposit());
+      repository.markDepositAsVerified.mockImplementation(async () => deposit({ statut: TransactionStatus.EN_VERIFICATION }));
+      repository.completeAutomaticTransaction.mockResolvedValue(deposit({ statut: TransactionStatus.VALIDEE }));
+    });
+
+    it('assigns to an open deposit flagged for reconciliation', async () => {
+      repository.findByTrackingId.mockResolvedValue(deposit({ captureReconciliationRequired: true }));
+      await expect(assign()).resolves.toEqual({ transactionId: 'deposit-1', creditSucceeded: true });
+      expect(repository.markDepositAsVerified).toHaveBeenCalledWith('deposit-1', 'R1', 'body', true);
+      expect(repository.completeAutomaticTransaction).toHaveBeenCalledWith(
+        'deposit-1', expect.any(Function), ValidationMethod.ADMIN_MANUEL, [TransactionStatus.EN_VERIFICATION]);
+      expect(repository.update).toHaveBeenCalledWith('deposit-1', { validePar: { id: 99 }, captureReconciliationRequired: false });
+    });
+
+    it('assigns to an auto-rejected deposit and reopens it', async () => {
+      repository.findByTrackingId.mockResolvedValue(deposit({ statut: TransactionStatus.REJETEE }));
+      await expect(assign()).resolves.toMatchObject({ creditSucceeded: true });
+    });
+
+    it('refuses a deposit rejected by an admin', async () => {
+      repository.findByTrackingId.mockResolvedValue(deposit({ statut: TransactionStatus.REJETEE, validePar: { id: 5 } as any }));
+      await expect(assign()).rejects.toThrow('Cette transaction ne peut pas recevoir ce paiement');
+      expect(repository.markDepositAsVerified).not.toHaveBeenCalled();
+    });
+
+    it.each([TransactionStatus.ANNULEE, TransactionStatus.VALIDEE])('refuses %s', async (statut) => {
+      repository.findByTrackingId.mockResolvedValue(deposit({ statut }));
+      await expect(assign()).rejects.toThrow('Cette transaction ne peut pas recevoir ce paiement');
+      expect(repository.markDepositAsVerified).not.toHaveBeenCalled();
+    });
+
+    it('refuses when the repository lock finds the deposit no longer eligible', async () => {
+      repository.markDepositAsVerified.mockResolvedValue(null);
+      await expect(assign()).rejects.toThrow('Cette transaction ne peut pas recevoir ce paiement');
+      expect(repository.completeAutomaticTransaction).not.toHaveBeenCalled();
+    });
+
+    it('refuses an empty reference', async () => {
+      await expect(assign(false, { ...sms, reference: ' ' })).rejects.toThrow('Ce SMS ne contient pas de référence de paiement');
+    });
+
+    it('refuses a different amount', async () => {
+      await expect(assign(false, { ...sms, montant: 500 }))
+        .rejects.toThrow('Le montant du SMS (500) est différent de celui de la transaction (1000)');
+      expect(repository.markDepositAsVerified).not.toHaveBeenCalled();
+    });
+
+    it('refuses a phone mismatch unless confirmed', async () => {
+      const other = { ...sms, telephone: '22891111111' };
+      await expect(assign(false, other)).rejects.toMatchObject({
+        response: { message: 'Le numéro du SMS est différent de celui de la transaction', code: 'PHONE_MISMATCH' },
+      });
+      expect(repository.markDepositAsVerified).not.toHaveBeenCalled();
+      await expect(assign(true, other)).resolves.toMatchObject({ creditSucceeded: true });
+    });
+
+    it('refuses a reference already used and names the transaction', async () => {
+      repository.findByConfirmedReference.mockResolvedValue({ trackingId: 'other-tx' });
+      await expect(assign()).rejects.toThrow('Cette référence est déjà utilisée par la transaction other-tx');
+      expect(repository.markDepositAsVerified).not.toHaveBeenCalled();
+    });
+
+    it('maps a unique violation from the database to a conflict', async () => {
+      repository.markDepositAsVerified.mockRejectedValue({ driverError: { code: '23505' } });
+      await expect(assign()).rejects.toThrow(ConflictException);
+    });
   });
 
   describe('SMS capture options', () => {

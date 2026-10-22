@@ -158,3 +158,47 @@ describe('SmsCaptureService consultation', () => {
     expect(qb.orderBy).toHaveBeenCalledWith('sms.receivedAt', 'DESC');
   });
 });
+
+describe('SmsCaptureService.assign', () => {
+  let row: any;
+  let smsRepo: { findOne: jest.Mock; save: jest.Mock };
+  let tx: { assignSmsManually: jest.Mock };
+  let service: SmsCaptureService;
+  const dto = { transactionId: 'tx1', confirmPhoneMismatch: false };
+
+  beforeEach(() => {
+    row = { trackingId: 's1', statut: SmsCaptureStatus.SANS_TRANSACTION, reference: 'R1', corps: 'c', montant: 1000, telephone: '9000' };
+    smsRepo = { findOne: jest.fn(async () => row), save: jest.fn(async (x) => x) };
+    tx = { assignSmsManually: jest.fn().mockResolvedValue({ transactionId: 'tx1', creditSucceeded: true }) };
+    const repo = { manager: { transaction: (cb: any) => cb({ getRepository: () => smsRepo }) } };
+    service = new SmsCaptureService(repo as any, tx as any, {} as any);
+  });
+
+  it('locks the row, assigns and records the manual attribution', async () => {
+    const r = await service.assign('s1', 9, dto);
+    expect(smsRepo.findOne).toHaveBeenCalledWith({ where: { trackingId: 's1' }, lock: { mode: 'pessimistic_write' } });
+    expect(tx.assignSmsManually).toHaveBeenCalledWith('tx1', { reference: 'R1', corps: 'c', montant: 1000, telephone: '9000' }, 9, false);
+    expect(row).toMatchObject({
+      statut: SmsCaptureStatus.ATTRIBUE, origineAttribution: SmsAttributionOrigin.MANUEL,
+      attribuePar: { id: 9 }, transaction: { trackingId: 'tx1' }, motif: 'Attribué manuellement',
+    });
+    expect(r).toEqual({ transactionId: 'tx1', creditSucceeded: true });
+  });
+
+  it('a second assign of the same SMS is refused with "SMS déjà attribué" and credits once', async () => {
+    await service.assign('s1', 9, dto);
+    await expect(service.assign('s1', 9, dto)).rejects.toThrow('SMS déjà attribué');
+    expect(tx.assignSmsManually).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves the SMS untouched when the assignment is refused', async () => {
+    tx.assignSmsManually.mockRejectedValue(new Error('refused'));
+    await expect(service.assign('s1', 9, dto)).rejects.toThrow('refused');
+    expect(smsRepo.save).not.toHaveBeenCalled();
+  });
+
+  it('unknown SMS is a 404', async () => {
+    smsRepo.findOne.mockResolvedValue(null);
+    await expect(service.assign('s1', 9, dto)).rejects.toThrow('SMS introuvable');
+  });
+});

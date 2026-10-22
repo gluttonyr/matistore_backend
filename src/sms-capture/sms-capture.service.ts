@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { TransactionService } from '../transaction/transaction.service';
@@ -7,6 +7,7 @@ import { SmsAttributionOrigin, SmsCapture, SmsCaptureStatus } from './entities/s
 import { SmsItemDto } from './dto/sms-batch.dto';
 import { smsFingerprint } from './sms-fingerprint';
 import { SmsListQueryDto } from './dto/sms-query.dto';
+import { AssignSmsDto } from './dto/assign-sms.dto';
 
 export interface SmsIngestResult {
   fingerprint: string;
@@ -111,6 +112,31 @@ export class SmsCaptureService {
       .limit(50)
       .getMany();
     return rows.map(toResponse);
+  }
+
+  async assign(id: string, adminId: number, dto: AssignSmsDto) {
+    // The row lock serialises concurrent assigns of the same SMS: the loser sees ATTRIBUE and never credits.
+    return this.repo.manager.transaction(async (manager) => {
+      const smsRepo = manager.getRepository(SmsCapture);
+      const sms = await smsRepo.findOne({ where: { trackingId: id }, lock: { mode: 'pessimistic_write' } });
+      if (!sms) throw new NotFoundException('SMS introuvable');
+      if (sms.statut === SmsCaptureStatus.ATTRIBUE) throw new ConflictException('SMS déjà attribué');
+      const result = await this.transactions.assignSmsManually(
+        dto.transactionId,
+        { reference: sms.reference ?? '', corps: sms.corps, montant: sms.montant ?? 0, telephone: sms.telephone },
+        adminId,
+        !!dto.confirmPhoneMismatch,
+      );
+      Object.assign(sms, {
+        statut: SmsCaptureStatus.ATTRIBUE,
+        origineAttribution: SmsAttributionOrigin.MANUEL,
+        attribuePar: { id: adminId },
+        transaction: { trackingId: result.transactionId },
+        motif: 'Attribué manuellement',
+      });
+      await smsRepo.save(sms);
+      return result;
+    });
   }
 
   private toResult(row: SmsCapture, fingerprint: string): SmsIngestResult {

@@ -6,6 +6,7 @@ import { TransactionService } from '../transaction/transaction.service';
 import { DeviceTokenService } from './device-token.service';
 import { DeviceTokenGuard } from './device-token.guard';
 import { SmsCaptureService } from './sms-capture.service';
+import { AssignSmsDto } from './dto/assign-sms.dto';
 import { SmsBatchDto } from './dto/sms-batch.dto';
 import { SmsDeviceDto, SmsHeartbeatDto } from './dto/sms-heartbeat.dto';
 
@@ -70,6 +71,14 @@ export class SmsCaptureController {
   async detail(@Param('id', new ParseUUIDPipe()) id: string, @Req() req: any): Promise<ApiResponse> {
     await this.assertActiveAdmin(req);
     return { data: await this.smsCapture.detail(id), message: 'SMS récupéré', status: 200 };
+  }
+
+  @Post(':id/assign')
+  @UseGuards(AuthGuard('jwt'))
+  async assign(@Param('id', new ParseUUIDPipe()) id: string, @Body() dto: AssignSmsDto, @Req() req: any): Promise<ApiResponse> {
+    await this.assertActiveAdmin(req);
+    const data = await this.smsCapture.assign(id, Number(req.user.userId), dto);
+    return { data, message: 'SMS attribué', status: 200 };
   }
 
   private async assertActiveAdmin(req: any) {

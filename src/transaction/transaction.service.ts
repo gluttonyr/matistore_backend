@@ -496,6 +496,49 @@ export class TransactionService implements OnModuleInit, OnModuleDestroy {
     return shorter.length >= 8 && longer.endsWith(shorter);
   }
 
+  async assignSmsManually(
+    transactionId: string,
+    sms: { reference: string; corps: string; montant: number; telephone: string | null },
+    adminId: number,
+    confirmPhoneMismatch: boolean,
+  ): Promise<{ transactionId: string; creditSucceeded: boolean }> {
+    await this.assertAdmin(adminId);
+    const reference = sms.reference?.trim();
+    if (!reference) throw new BadRequestException('Ce SMS ne contient pas de référence de paiement');
+    const used = await this.findByPaymentReference(reference);
+    if (used) throw new ConflictException(`Cette référence est déjà utilisée par la transaction ${used.trackingId}`);
+
+    const deposit = await this.repository.findByTrackingId(transactionId);
+    // Mirrors markDepositAsVerified (re-checked there under lock); a deposit that already holds a reference is never re-assigned.
+    const open = deposit?.type === TransactionType.DEPOT && !deposit.referencePaiement && (
+      [TransactionStatus.EN_ATTENTE_AUTO, TransactionStatus.EN_VERIFICATION].includes(deposit.statut)
+      || (deposit.statut === TransactionStatus.REJETEE && !deposit.validePar));
+    if (!deposit || !open) throw new BadRequestException('Cette transaction ne peut pas recevoir ce paiement');
+    if (Number(deposit.montant) !== sms.montant) {
+      throw new BadRequestException(`Le montant du SMS (${sms.montant}) est différent de celui de la transaction (${deposit.montant})`);
+    }
+    if (!confirmPhoneMismatch && !this.phonesMatch(sms.telephone ?? '', deposit.numeroTelephone ?? '')) {
+      throw new BadRequestException({ message: 'Le numéro du SMS est différent de celui de la transaction', code: 'PHONE_MISMATCH' });
+    }
+
+    let saved: { transaction: Transaction | null; credited: boolean };
+    try {
+      saved = await this.markCapturedDeposit(transactionId, reference, sms.corps, {
+        allowAutoRejected: true,
+        validationMethod: ValidationMethod.ADMIN_MANUEL,
+      });
+    } catch (error) {
+      // The UNIQUE referencePaiement column is the last guard against a double credit.
+      if ((error as { driverError?: { code?: string } }).driverError?.code === '23505') {
+        throw new ConflictException('Cette référence est déjà utilisée par une autre transaction');
+      }
+      throw error;
+    }
+    if (!saved.transaction) throw new BadRequestException('Cette transaction ne peut pas recevoir ce paiement');
+    await this.repository.update(transactionId, { validePar: { id: adminId } as Transaction['validePar'], captureReconciliationRequired: false });
+    return { transactionId, creditSucceeded: saved.credited };
+  }
+
   private async markCapturedDeposit(
     trackingId: string,
     reference: string,
