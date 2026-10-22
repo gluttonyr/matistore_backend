@@ -268,6 +268,8 @@ export class TransactionRepository extends Repository<Transaction> {
         || (!reopenable && ![TransactionStatus.EN_ATTENTE_AUTO, TransactionStatus.EN_VERIFICATION].includes(transaction.statut))) {
         return null;
       }
+      // A recorded payment reference is never overwritten: the old one would be freed and could credit another deposit.
+      if (transaction.referencePaiement && transaction.referencePaiement !== referencePaiement) return null;
       if (reopenable) {
         transaction.motifRejet = null;
         transaction.dateValidation = null as unknown as Date;

@@ -509,7 +509,7 @@ export class TransactionService implements OnModuleInit, OnModuleDestroy {
     if (used) throw new ConflictException(`Cette référence est déjà utilisée par la transaction ${used.trackingId}`);
 
     const deposit = await this.repository.findByTrackingId(transactionId);
-    // Mirrors markDepositAsVerified (re-checked there under lock); a deposit that already holds a reference is never re-assigned.
+    // Unlocked pre-read for friendly errors only; markDepositAsVerified re-checks status and existing reference under lock.
     const open = deposit?.type === TransactionType.DEPOT && !deposit.referencePaiement && (
       [TransactionStatus.EN_ATTENTE_AUTO, TransactionStatus.EN_VERIFICATION].includes(deposit.statut)
       || (deposit.statut === TransactionStatus.REJETEE && !deposit.validePar));

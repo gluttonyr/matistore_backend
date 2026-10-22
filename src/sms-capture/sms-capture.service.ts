@@ -115,6 +115,7 @@ export class SmsCaptureService {
   }
 
   async assign(id: string, adminId: number, dto: AssignSmsDto) {
+    // shortcut: the SMS row lock is held across the Servcul HTTP call (one DB connection per in-flight assign), fine for a low-volume admin route, upgrade if assigns become frequent.
     // The row lock serialises concurrent assigns of the same SMS: the loser sees ATTRIBUE and never credits.
     return this.repo.manager.transaction(async (manager) => {
       const smsRepo = manager.getRepository(SmsCapture);
