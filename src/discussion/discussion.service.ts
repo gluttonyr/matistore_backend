@@ -126,6 +126,7 @@ getDiscussionByUser(userId: string) {
         'user.username',
         'user.email',
         'user.telephone',
+        'user.image',
         'user.active',
         'user.createdAt',
       ])
@@ -140,6 +141,7 @@ getDiscussionByUser(userId: string) {
       username: user.username,
       email: user.email,
       telephone: user.telephone,
+      image: user.image,
       active: user.active,
       createdAt: user.createdAt,
     };
