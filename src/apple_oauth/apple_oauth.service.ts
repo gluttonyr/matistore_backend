@@ -39,8 +39,14 @@ export class AppleOauthService {
         throw new Error('Invalid Apple token signature');
       }
 
-      const expectedAudience = process.env.APPLE_BUNDLE_ID || 'com.urbain_diligence.matistore_mobile';
-      if (claims.iss !== 'https://appleid.apple.com' || claims.aud !== expectedAudience ||
+      // iOS app tokens carry the bundle ID, website tokens carry the Services ID.
+      // The iOS bundle ID uses dashes (app.config.js); the old underscore default is kept so nothing that passed before is rejected.
+      const allowedAudiences = [
+        process.env.APPLE_BUNDLE_ID || 'com.urbain_diligence.matistore_mobile',
+        'com.urbain-diligence.matistore-mobile',
+        process.env.APPLE_SERVICES_ID || 'tech.matistore.web',
+      ];
+      if (claims.iss !== 'https://appleid.apple.com' || !allowedAudiences.includes(claims.aud) ||
           !claims.sub || !Number.isFinite(claims.exp) || claims.exp <= Date.now() / 1000) {
         throw new Error('Invalid Apple token claims');
       }
