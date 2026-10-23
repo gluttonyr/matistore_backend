@@ -40,6 +40,7 @@ export class DiscussionRepository extends Repository<Discussion> {
         'participantUser.trackingId',
         'participantUser.nom',
         'participantUser.prenom',
+        'participantUser.image',
         'participantUser.username',
       ])
       .where('discussion.type != :forumType', { forumType: DiscussionType.FORUM });
@@ -143,6 +144,7 @@ export class DiscussionRepository extends Repository<Discussion> {
         'participantUser.trackingId',
         'participantUser.nom',
         'participantUser.prenom',
+        'participantUser.image',
         'participantUser.username',
       ])
       .where('discussion.type != :type', { type: DiscussionType.FORUM })

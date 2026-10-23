@@ -52,6 +52,7 @@ export class DiscussionMapper extends BaseMapper<Discussion, DiscussionResponseD
           username: user.username,
           email: user.email,
           telephone: user.telephone,
+          image: user.image,
           active: user.active,
           createdAt: user.createdAt,
         };

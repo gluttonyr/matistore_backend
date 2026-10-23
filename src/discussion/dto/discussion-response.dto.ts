@@ -33,6 +33,7 @@ export class DiscussionResponseDto {
     username: string;
     email: string;
     telephone?: string | null;
+    image?: string | null;
     active: boolean;
     createdAt: Date;
   };
