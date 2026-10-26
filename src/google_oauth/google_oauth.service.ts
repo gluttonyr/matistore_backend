@@ -83,8 +83,9 @@ export class GoogleOauthService {
       name: payload.name,
       googleId: payload.sub,
       picture: payload.picture,
-      prenom: payload.given_name,
-      nom: payload.family_name,
+      // Some Google accounts have a single name (no family_name): "nom" is required, same fallback as Apple.
+      prenom: payload.given_name || payload.name || 'Utilisateur',
+      nom: payload.family_name || 'Google',
     };
   } catch (error: any) {
     console.error('========== GOOGLE AUTH ERROR ==========');
