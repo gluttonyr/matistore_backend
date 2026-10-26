@@ -65,20 +65,24 @@ export class UtilisateurService implements OnModuleInit {
       throw new BadRequestException('Email déjà utilisé par un autre utilisateur');
     }
 
-    const entity = await this.userMapper.toEntity(payload);
-    if (!entity.username) {
-      const nom = payload.nom
-        .trim()
-        .toUpperCase();
+    // One of the two names is enough (e.g. single-name Google accounts); the other stays empty.
+    const rawNom = (payload.nom ?? '').trim();
+    const rawPrenom = (payload.prenom ?? '').trim();
+    if (!rawNom && !rawPrenom) {
+      throw new BadRequestException('Indiquez au moins votre prénom ou votre nom');
+    }
 
-      const prenom = payload.prenom
-        .trim()
+    const entity = await this.userMapper.toEntity({ ...payload, nom: rawNom, prenom: rawPrenom });
+    if (!entity.username) {
+      const nom = rawNom.toUpperCase();
+
+      const prenom = rawPrenom
         .toLowerCase()
         .split(/\s+/)
         .map((p) => p.charAt(0).toUpperCase() + p.slice(1))
         .join(' ');
 
-      entity.username = `${nom} ${prenom}`;
+      entity.username = `${nom} ${prenom}`.trim();
     }
 
 

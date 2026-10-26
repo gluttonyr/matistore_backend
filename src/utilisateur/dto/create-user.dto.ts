@@ -2,11 +2,12 @@ import { IsEmail, IsNotEmpty, IsOptional, IsString, MinLength } from 'class-vali
 import { UserRole } from '../enums/user-role.enum';
 
 export class CreateUserDto {
-  @IsNotEmpty({ message: 'Le nom est requis' })
+  // At least one of nom / prenom is required (checked in UtilisateurService.create).
+  @IsOptional()
   @IsString()
   nom!: string;
 
-  @IsNotEmpty({ message: 'Le prénom est requis' })
+  @IsOptional()
   @IsString()
   prenom!: string;
 
