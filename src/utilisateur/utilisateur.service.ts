@@ -85,14 +85,6 @@ export class UtilisateurService implements OnModuleInit {
       entity.username = `${nom} ${prenom}`.trim();
     }
 
-    // username is unique but built from the name: two people with the same name get "Name 2", "Name 3"...
-    const baseUsername = entity.username.trim();
-    let username = baseUsername;
-    for (let n = 2; await this.userRepository.count({ where: { username } }); n++) {
-      username = `${baseUsername} ${n}`;
-    }
-    entity.username = username;
-
     const user = this.userRepository.create({
       ...entity,
       active: payload.active ?? true,

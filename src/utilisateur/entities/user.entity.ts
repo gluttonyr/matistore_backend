@@ -11,7 +11,8 @@ export class User extends BaseEntity {
   @Column()
   prenom!: string;
 
-  @Column({ unique: true })
+  // Display name built from nom + prenom: two people can share it (accounts are found by email / id, never by username).
+  @Column()
   username!: string;
 
   @Column({ unique: true })
