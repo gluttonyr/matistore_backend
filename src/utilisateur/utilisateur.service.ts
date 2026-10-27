@@ -18,7 +18,32 @@ export class UtilisateurService implements OnModuleInit {
   ) { }
 
   async onModuleInit() {
+    await this.dropUsernameUniqueConstraint();
     await this.ensureAdminExists();
+  }
+
+  // Prod runs without TypeORM synchronize, so the old UNIQUE(username) stays in the database after the entity
+  // dropped it. Removes it once (no-op afterwards); it only stops refusing equal usernames, no data is touched.
+  private async dropUsernameUniqueConstraint() {
+    try {
+      await this.userRepository.query(`
+        DO $$
+        DECLARE c text;
+        BEGIN
+          FOR c IN
+            SELECT con.conname FROM pg_constraint con
+            JOIN pg_attribute a ON a.attrelid = con.conrelid AND a.attnum = ANY (con.conkey)
+            WHERE con.conrelid = 'users'::regclass AND con.contype = 'u'
+              AND array_length(con.conkey, 1) = 1 AND a.attname = 'username'
+          LOOP
+            EXECUTE format('ALTER TABLE users DROP CONSTRAINT %I', c);
+            RAISE NOTICE 'Dropped unique constraint % on users.username', c;
+          END LOOP;
+        END $$;
+      `);
+    } catch (error) {
+      console.warn('⚠️ Could not drop the unique constraint on users.username:', error);
+    }
   }
 
   private async ensureAdminExists() {
