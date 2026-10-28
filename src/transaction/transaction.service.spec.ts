@@ -501,15 +501,16 @@ describe('TransactionService automatic deposit verification', () => {
     it('assigns to an open deposit flagged for reconciliation', async () => {
       repository.findByTrackingId.mockResolvedValue(deposit({ captureReconciliationRequired: true }));
       await expect(assign()).resolves.toEqual({ transactionId: 'deposit-1', creditSucceeded: true });
-      expect(repository.markDepositAsVerified).toHaveBeenCalledWith('deposit-1', 'R1', 'body', true);
+      expect(repository.markDepositAsVerified).toHaveBeenCalledWith('deposit-1', 'R1', 'body');
       expect(repository.completeAutomaticTransaction).toHaveBeenCalledWith(
         'deposit-1', expect.any(Function), ValidationMethod.ADMIN_MANUEL, [TransactionStatus.EN_VERIFICATION]);
       expect(repository.update).toHaveBeenCalledWith('deposit-1', { validePar: { id: 99 }, captureReconciliationRequired: false });
     });
 
-    it('assigns to an auto-rejected deposit and reopens it', async () => {
+    it('refuses an auto-rejected deposit (a rejected deposit is final)', async () => {
       repository.findByTrackingId.mockResolvedValue(deposit({ statut: TransactionStatus.REJETEE }));
-      await expect(assign()).resolves.toMatchObject({ creditSucceeded: true });
+      await expect(assign()).rejects.toThrow('Cette transaction ne peut pas recevoir ce paiement');
+      expect(repository.markDepositAsVerified).not.toHaveBeenCalled();
     });
 
     it('refuses a deposit rejected by an admin', async () => {
@@ -574,23 +575,20 @@ describe('TransactionService automatic deposit verification', () => {
       packageNotification: 'com.android.messaging',
       titreNotification: 'TMoney Paiement',
     });
-    const smsOptions = { candidateWindowMs: 24 * H, includeAutoRejected: true, skipPackageCheck: true };
+    const smsOptions = { candidateWindowMs: 24 * H, skipPackageCheck: true };
     const deposit = (trackingId: string, createdAt: number, extra: Partial<Transaction> = {}) =>
       Object.assign(pendingDeposit(), { trackingId, createdAt: new Date(createdAt) }, extra);
 
     beforeEach(() => repository.markDepositAsVerified.mockResolvedValue(null));
 
-    it('sms window: validates a deposit auto-rejected at 15 min when the SMS was received 5 min after it', async () => {
-      repository.findOpenCandidates.mockResolvedValue([
-        deposit('rejected', T, { statut: TransactionStatus.REJETEE, validePar: undefined }),
-      ]);
+    it('sms window: searches open deposits of the last 24h', async () => {
+      repository.findOpenCandidates.mockResolvedValue([]);
 
       await service.processAdminCapture(dto(), 99, smsOptions);
 
       expect(repository.findOpenCandidates).toHaveBeenCalledWith(
-        'TMoney', 1000, new Date(smsAt - 24 * H), new Date(smsAt), true,
+        'TMoney', 1000, new Date(smsAt - 24 * H), new Date(smsAt),
       );
-      expect(repository.markDepositAsVerified).toHaveBeenCalledWith('rejected', '123456', expect.any(String), true);
     });
 
     it('sms window: picks the most recent deposit of the same client created before the SMS', async () => {
@@ -601,7 +599,7 @@ describe('TransactionService automatic deposit verification', () => {
 
       await service.processAdminCapture(dto(), 99, smsOptions);
 
-      expect(repository.markDepositAsVerified).toHaveBeenCalledWith('recent-open', '123456', expect.any(String), true);
+      expect(repository.markDepositAsVerified).toHaveBeenCalledWith('recent-open', '123456', expect.any(String));
     });
 
     it('sms window: a deposit created 24h01 before the SMS is not a candidate; 23h59 is', async () => {
@@ -612,7 +610,7 @@ describe('TransactionService automatic deposit verification', () => {
 
       repository.findOpenCandidates.mockResolvedValue([deposit('in-window', smsAt - 24 * H + 60_000)]);
       await service.processAdminCapture(dto(), 99, smsOptions);
-      expect(repository.markDepositAsVerified).toHaveBeenCalledWith('in-window', '123456', expect.any(String), true);
+      expect(repository.markDepositAsVerified).toHaveBeenCalledWith('in-window', '123456', expect.any(String));
     });
 
     it('sms window: skips the package check only when asked', async () => {
@@ -632,7 +630,7 @@ describe('TransactionService automatic deposit verification', () => {
       await service.processAdminCapture(dto(), 99);
 
       expect(repository.findOpenCandidates).toHaveBeenCalledWith(
-        'TMoney', 1000, new Date(smsAt - 15 * 60_000), new Date(smsAt), false,
+        'TMoney', 1000, new Date(smsAt - 15 * 60_000), new Date(smsAt),
       );
     });
 

@@ -205,7 +205,7 @@ export class SmsCaptureService {
         titreNotification: item.expediteur,
       },
       adminId,
-      { skipPackageCheck: true, candidateWindowMs: WINDOW_MS, includeAutoRejected: true },
+      { skipPackageCheck: true, candidateWindowMs: WINDOW_MS },
     );
     const motif = r.reason ?? r.message ?? null;
 

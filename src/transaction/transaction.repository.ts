@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Brackets, DataSource, In, MoreThan, Repository } from 'typeorm';
+import { DataSource, In, MoreThan, Repository } from 'typeorm';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { Transaction, TransactionStatus, TransactionType, ValidationMethod } from './entities/transaction.entity';
 import { User } from '../utilisateur/entities/user.entity';
@@ -256,7 +256,6 @@ export class TransactionRepository extends Repository<Transaction> {
     trackingId: string,
     referencePaiement: string,
     notificationBrute: string,
-    allowAutoRejected = false,
   ) {
     return this.manager.transaction(async (manager) => {
       const repository = manager.getRepository(Transaction);
@@ -265,27 +264,15 @@ export class TransactionRepository extends Repository<Transaction> {
         relations: { user: true },
         lock: { mode: 'pessimistic_write' },
       });
-      // validePar is read apart, once the row is locked: Postgres refuses FOR UPDATE across the
-      // nullable LEFT JOIN that loading it would add.
-      const rejectedByAdmin = allowAutoRejected && transaction?.statut === TransactionStatus.REJETEE
-        ? !!(await repository.findOne({ where: { trackingId }, relations: { validePar: true } }))?.validePar
-        : false;
-      // Only an automatic rejection (no admin, no payment reference) may be reopened by a late SMS.
-      const reopenable = allowAutoRejected
-        && transaction?.statut === TransactionStatus.REJETEE
-        && !rejectedByAdmin
-        && !transaction.referencePaiement;
+      // Only a deposit still waiting for its payment can take it: a rejected or cancelled deposit is final
+      // (an admin may already have credited it by hand), so a late SMS never reopens it.
       if (!transaction
         || transaction.type !== TransactionType.DEPOT
-        || (!reopenable && ![TransactionStatus.EN_ATTENTE_AUTO, TransactionStatus.EN_VERIFICATION].includes(transaction.statut))) {
+        || ![TransactionStatus.EN_ATTENTE_AUTO, TransactionStatus.EN_VERIFICATION].includes(transaction.statut)) {
         return null;
       }
       // A recorded payment reference is never overwritten: the old one would be freed and could credit another deposit.
       if (transaction.referencePaiement && transaction.referencePaiement !== referencePaiement) return null;
-      if (reopenable) {
-        transaction.motifRejet = null;
-        transaction.dateValidation = null as unknown as Date;
-      }
 
       transaction.referencePaiement = referencePaiement;
       transaction.notificationBrute = notificationBrute;
@@ -554,30 +541,21 @@ export class TransactionRepository extends Repository<Transaction> {
     });
   }
 
-  findOpenCandidates(operateur: string, montant: number, since: Date, notificationPostedAt: Date, includeAutoRejected = false) {
+  findOpenCandidates(operateur: string, montant: number, since: Date, notificationPostedAt: Date) {
     return this.createQueryBuilder('t')
       .innerJoinAndSelect('t.user', 'user')
       .where('LOWER(t.operateur) = LOWER(:operateur)', { operateur })
       .andWhere('t.type = :type', { type: TransactionType.DEPOT })
       .andWhere('t.montant = :montant', { montant })
       .andWhere('t.createdAt <= :notificationPostedAt', { notificationPostedAt })
-      .andWhere(new Brackets((qb) => {
-        qb.where(new Brackets((open) => {
-          open.where('t.statut IN (:...statuts)', {
-            statuts: [
-              TransactionStatus.EN_ATTENTE_AUTO,
-              TransactionStatus.EN_VERIFICATION,
-              TransactionStatus.EN_ATTENTE_PREUVE,
-            ],
-          }).andWhere('(t.createdAt >= :since OR t.capture_reconciliation_required = true)', { since });
-        }));
-        if (includeAutoRejected) {
-          qb.orWhere(
-            't.statut = :rejected AND t.validated_by_id IS NULL AND t.referencePaiement IS NULL AND t.createdAt >= :since',
-            { rejected: TransactionStatus.REJETEE, since },
-          );
-        }
-      }))
+      .andWhere('t.statut IN (:...statuts)', {
+        statuts: [
+          TransactionStatus.EN_ATTENTE_AUTO,
+          TransactionStatus.EN_VERIFICATION,
+          TransactionStatus.EN_ATTENTE_PREUVE,
+        ],
+      })
+      .andWhere('(t.createdAt >= :since OR t.capture_reconciliation_required = true)', { since })
       .orderBy('t.createdAt', 'ASC')
       .getMany();
   }

@@ -26,6 +26,14 @@ describe('TransactionRepository.markDepositAsVerified', () => {
     expect(await repo.markDepositAsVerified('t', 'R1', 'n')).toBe(row);
     expect(save).toHaveBeenCalled();
   });
+
+  // A rejected or cancelled deposit is final: an admin may already have credited it by hand.
+  it.each([TransactionStatus.REJETEE, TransactionStatus.ANNULEE])('never reopens a %s deposit, even without a reference', async (statut) => {
+    row = { type: TransactionType.DEPOT, statut };
+    expect(await repo.markDepositAsVerified('t', 'R9', 'n')).toBeNull();
+    expect(save).not.toHaveBeenCalled();
+    expect(row.statut).toBe(statut);
+  });
 });
 
 describe('TransactionRepository.findAdminPage filters', () => {

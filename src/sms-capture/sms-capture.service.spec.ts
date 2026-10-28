@@ -76,7 +76,7 @@ describe('SmsCaptureService.ingestBatch', () => {
     expect(tx.processAdminCapture).toHaveBeenCalledWith(
       expect.objectContaining({ operateur: 'Mixx', montant: 1000, numeroTelephoneClient: '9000', notificationPostedAt: 1_700_000_000_000 }),
       7,
-      { skipPackageCheck: true, candidateWindowMs: 24 * 3600_000, includeAutoRejected: true },
+      { skipPackageCheck: true, candidateWindowMs: 24 * 3600_000 },
     );
   });
 

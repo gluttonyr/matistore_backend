@@ -40,7 +40,6 @@ const depositsUnavailableMessage = (closed: boolean) => closed
 export interface CaptureOptions {
   skipPackageCheck?: boolean;
   candidateWindowMs?: number;
-  includeAutoRejected?: boolean;
 }
 const RECONCILIATION_TIMEOUT_MS = 25 * 60 * 60 * 1000;
 const AUTO_TIMEOUT_POLL_MS = 5_000;
@@ -362,13 +361,11 @@ export class TransactionService implements OnModuleInit, OnModuleDestroy {
     const notificationPostedAt = new Date(dto.notificationPostedAt ?? Date.now());
     const freshSince = new Date(notificationPostedAt.getTime() - AUTO_TIMEOUT_SECONDS * 1000);
     const since = new Date(notificationPostedAt.getTime() - (options.candidateWindowMs ?? AUTO_TIMEOUT_SECONDS * 1000));
-    const includeAutoRejected = options.includeAutoRejected ?? false;
     let candidates = await this.repository.findOpenCandidates(
       operateur.nom,
       dto.montant,
       since,
       notificationPostedAt,
-      includeAutoRejected,
     );
     candidates = candidates.filter((candidate) =>
       candidate.createdAt <= notificationPostedAt
@@ -426,7 +423,6 @@ export class TransactionService implements OnModuleInit, OnModuleDestroy {
         selectedCandidate.trackingId,
         reference,
         dto.notificationBrute,
-        { allowAutoRejected: includeAutoRejected },
       );
       if (!saved.transaction) return debugResult(false, false, 'La transaction a changé d’état avant son enregistrement.');
       this.logger.log(JSON.stringify({
@@ -517,9 +513,8 @@ export class TransactionService implements OnModuleInit, OnModuleDestroy {
 
     const deposit = await this.repository.findByTrackingId(transactionId);
     // Unlocked pre-read for friendly errors only; markDepositAsVerified re-checks status and existing reference under lock.
-    const open = deposit?.type === TransactionType.DEPOT && !deposit.referencePaiement && (
-      [TransactionStatus.EN_ATTENTE_AUTO, TransactionStatus.EN_VERIFICATION].includes(deposit.statut)
-      || (deposit.statut === TransactionStatus.REJETEE && !deposit.validePar));
+    const open = deposit?.type === TransactionType.DEPOT && !deposit.referencePaiement
+      && [TransactionStatus.EN_ATTENTE_AUTO, TransactionStatus.EN_VERIFICATION].includes(deposit.statut);
     if (!deposit || !open) throw new BadRequestException('Cette transaction ne peut pas recevoir ce paiement');
     if (Number(deposit.montant) !== sms.montant) {
       throw new BadRequestException(`Le montant du SMS (${sms.montant}) est différent de celui de la transaction (${deposit.montant})`);
@@ -531,7 +526,6 @@ export class TransactionService implements OnModuleInit, OnModuleDestroy {
     let saved: { transaction: Transaction | null; credited: boolean };
     try {
       saved = await this.markCapturedDeposit(transactionId, reference, sms.corps, {
-        allowAutoRejected: true,
         validationMethod: ValidationMethod.ADMIN_MANUEL,
       });
     } catch (error) {
@@ -550,11 +544,9 @@ export class TransactionService implements OnModuleInit, OnModuleDestroy {
     trackingId: string,
     reference: string,
     notification: string,
-    opts: { allowAutoRejected?: boolean; validationMethod?: ValidationMethod } = {},
+    opts: { validationMethod?: ValidationMethod } = {},
   ): Promise<{ transaction: Transaction | null; credited: boolean }> {
-    const saved = opts.allowAutoRejected
-      ? await this.repository.markDepositAsVerified(trackingId, reference, notification, true)
-      : await this.repository.markDepositAsVerified(trackingId, reference, notification);
+    const saved = await this.repository.markDepositAsVerified(trackingId, reference, notification);
     if (!saved) return { transaction: null, credited: false };
 
     await this.postSystemMessage(
