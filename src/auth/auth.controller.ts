@@ -80,7 +80,9 @@ export class AuthController {
   @Post('register')
   async register(@Body() body: CreateUserDto): Promise<ApiResponse> {
     const registration = body as CreateUserDto;
-    let payload = { ...body } as CreateUserDto;
+    // Public route: a sign-up never chooses its own role or account state.
+    const { role: _role, active: _active, ...safeBody } = body;
+    let payload = { ...safeBody } as CreateUserDto;
     if (registration.provider === 'apple') {
       if (!registration.identityToken) throw new BadRequestException('Jeton Apple requis pour terminer cette inscription');
       const claims = await this.appleOauthService.validateIdentityToken(registration.identityToken);
@@ -88,7 +90,7 @@ export class AuthController {
           (registration.appleId && registration.appleId !== claims.sub)) {
         throw new BadRequestException('Les informations du compte Apple ne correspondent pas');
       }
-      payload = { ...body, appleId: claims.sub, provider: 'apple' };
+      payload = { ...safeBody, appleId: claims.sub, provider: 'apple' } as CreateUserDto;
       delete (payload as any).identityToken;
     }
     const user = await this.utilisateurService.create(payload);

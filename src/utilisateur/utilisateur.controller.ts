@@ -8,6 +8,15 @@ import { AuthGuard } from '@nestjs/passport';
 import { UserRole } from './enums/user-role.enum';
 import { UploadService } from 'src/uploads/upload.service';
 import { UserMapper } from './mappers/user.mapper';
+import { AdminGuard } from '../auth/admin.guard';
+import { User } from './entities/user.entity';
+
+// The bcrypt hash never leaves the server.
+const withoutPassword = (user: User | null) => {
+  if (!user) return user;
+  const { password: _password, ...safe } = user;
+  return safe;
+};
 
 @UseGuards(AuthGuard('jwt'))
 @Controller('users')
@@ -26,7 +35,7 @@ async getProfile(@Req() req: any): Promise<ApiResponse> {
 
   const user = await this.utilisateurService.findUserById(userId);
 
-  return { data: user, message: 'Profil utilisateur', status: 200 };
+  return { data: withoutPassword(user), message: 'Profil utilisateur', status: 200 };
 }
 
 
@@ -44,7 +53,7 @@ async updatePassword(@Req() req: any,@Body() body:any): Promise<ApiResponse> {
   async updatePushToken(@Req() req: any, @Body('token') token: string): Promise<ApiResponse> {
     const userId = req.user.userId;
     const user = await this.utilisateurService.updatePushToken(userId, token);
-    return { data: user, message: 'Token push enregistré', status: 200 };
+    return { data: withoutPassword(user), message: 'Token push enregistré', status: 200 };
   }
 
   @Get()
@@ -54,19 +63,26 @@ async updatePassword(@Req() req: any,@Body() body:any): Promise<ApiResponse> {
       throw new ForbiddenException("Vous n'êtes pas autorisé à accéder à cette ressource");
     }
     const users = await this.utilisateurService.findAll();
-    return { data: users, message: 'Liste des utilisateurs', status: 200 };
+    return { data: users.map(withoutPassword), message: 'Liste des utilisateurs', status: 200 };
   }
 
   @Get(':id')
-  async findOne(@Param('id') id: string): Promise<ApiResponse> {
+  async findOne(@Param('id') id: string, @Req() req: any): Promise<ApiResponse> {
     const user = await this.utilisateurService.findById(id);
-    return { data: user, message: 'Utilisateur trouvé', status: 200 };
+    if (user && user.id !== Number(req.user.userId)) {
+      const requester = await this.utilisateurService.findUserById(Number(req.user.userId));
+      if (requester?.role !== UserRole.ADMIN) {
+        throw new ForbiddenException("Vous n'êtes pas autorisé à accéder à cette ressource");
+      }
+    }
+    return { data: withoutPassword(user), message: 'Utilisateur trouvé', status: 200 };
   }
 
+  @UseGuards(AdminGuard)
   @Post()
   async create(@Body() body: CreateUserDto): Promise<ApiResponse> {
     const user = await this.utilisateurService.create(body);
-    return { data: user, message: 'Utilisateur créé', status: 201 };
+    return { data: withoutPassword(user), message: 'Utilisateur créé', status: 201 };
   }
 
   @Put(':id')
@@ -107,6 +123,7 @@ async updatePassword(@Req() req: any,@Body() body:any): Promise<ApiResponse> {
     return { data: this.userMapper.toResponse(user), message: 'Utilisateur mis à jour', status: 200 };
   }
 
+  @UseGuards(AdminGuard)
   @Delete(':id')
   async remove(@Param('id') id: string): Promise<ApiResponse> {
     await this.utilisateurService.remove(id);

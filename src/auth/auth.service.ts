@@ -20,9 +20,9 @@ export class AuthService {
     return user;
   }
 
-  async getToken(user: { id: number; email: string }) {
+  async getToken(user: { id: number; email: string; role?: string }) {
     return {
-      access_token: this.jwtService.sign({ sub: user.id, email: user.email }),
+      access_token: this.jwtService.sign({ sub: user.id, email: user.email, role: user.role }),
     };
   }
   async login(body: { email: string; password: string }) {

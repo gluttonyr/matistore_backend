@@ -143,6 +143,9 @@ async handleJoin(
   @MessageBody() discussionId: string,
   @ConnectedSocket() client: Socket,
 ) {
+  if (!(await this.discussionService.canAccess(discussionId, Number(client.data?.userId)))) {
+    return { success: false, error: 'Vous n’avez pas accès à cette discussion' };
+  }
   client.join(discussionId);
 
   const readerId = client.data?.userId;
@@ -228,6 +231,7 @@ async handleGetDiscussionClientStatus(@MessageBody() discussionId: string) {
       type?:MessageType;
       discussionStatut?:DiscussionStatus;
     },
+    @ConnectedSocket() client: Socket,
   ) {
     this.logger.log(JSON.stringify({
       event: 'message.send.received',
@@ -238,6 +242,12 @@ async handleGetDiscussionClientStatus(@MessageBody() discussionId: string) {
       hasImage: Boolean(payload.image),
     }));
     try {
+      // The sender is the socket's authenticated user; payload.senderId is ignored.
+      const sender = await this.utilisateurService.findUserById(Number(client.data?.userId));
+      if (!sender) throw new Error('Utilisateur non authentifié');
+      if (!(await this.discussionService.canAccess(payload.discussionId, sender.id))) {
+        throw new Error('Vous n’avez pas accès à cette discussion');
+      }
       let parentMessage: any = null;
       if (payload.parentId) {
         parentMessage = await this.messageService.findById(payload.parentId);
@@ -252,7 +262,7 @@ async handleGetDiscussionClientStatus(@MessageBody() discussionId: string) {
           trackingId: payload.discussionId,
         } as any,
         sender: {
-          trackingId: payload.senderId,
+          trackingId: sender.trackingId,
         } as any,
         parent: parentMessage ? { trackingId: parentMessage.id } as any : undefined,
         image: payload.image,
@@ -303,7 +313,12 @@ async handleGetDiscussionClientStatus(@MessageBody() discussionId: string) {
       messageId: string;
       contenu: string;
     },
+    @ConnectedSocket() client: Socket,
   ) {
+    const existing = await this.messageService.findById(payload.messageId);
+    if (!existing || existing.sender?.id !== Number(client.data?.userId)) {
+      return { success: false, error: 'Vous ne pouvez modifier que vos propres messages' };
+    }
     const message = await this.messageService.update(
       payload.messageId,
       {

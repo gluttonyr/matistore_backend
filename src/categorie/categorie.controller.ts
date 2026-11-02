@@ -5,6 +5,7 @@ import { UpdateCategorieDto } from './dto/update-categorie.dto';
 import { ApiResponse } from '../common/api-response.interface';
 import { CategorieMapper } from './mappers/categorie.mapper';
 import { AuthGuard } from '@nestjs/passport';
+import { AdminGuard } from '../auth/admin.guard';
 
 @UseGuards(AuthGuard('jwt'))
 @Controller('categories')
@@ -28,6 +29,7 @@ export class CategorieController {
     return { data: responseData, message: 'Catégorie trouvée', status: 200 };
   }
 
+  @UseGuards(AdminGuard)
   @Post()
   async create(@Body() body: CreateCategorieDto): Promise<ApiResponse> {
     const categorie = await this.categorieService.create(body);
@@ -35,6 +37,7 @@ export class CategorieController {
     return { data: responseData, message: 'Catégorie créée', status: 201 };
   }
 
+  @UseGuards(AdminGuard)
   @Put(':id')
   async update(@Param('id') id: string, @Body() body: UpdateCategorieDto): Promise<ApiResponse> {
     const categorie = await this.categorieService.update(id, body);
@@ -42,6 +45,7 @@ export class CategorieController {
     return { data: responseData, message: 'Catégorie mise à jour', status: 200 };
   }
 
+  @UseGuards(AdminGuard)
   @Delete(':id')
   async remove(@Param('id') id: string): Promise<ApiResponse> {
     await this.categorieService.remove(id);

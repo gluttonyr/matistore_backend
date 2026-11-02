@@ -66,12 +66,18 @@ export class UploadController {
             throw new Error("UPLOAD_ROOT n'est pas défini dans le .env");
         }
 
-        // Chemin complet du fichier
-        console.log(path.join(root, folder, filename.replace(/\s+/g, "")));
-        const filePath = path.join(root, folder, filename.replace(/\s+/g, ""));
+        // Chemin complet du fichier : un seul dossier et un seul nom, jamais en dehors de root
+        // (les paramètres sont décodés, "..%2F" deviendrait sinon "../").
+        const name = filename.replace(/\s+/g, "");
+        const isPlainSegment = (value: string) => !!value && !/[\\/]/.test(value) && !value.startsWith('.');
+        const rootDir = path.resolve(root);
+        const filePath = path.resolve(rootDir, folder, name);
+        if (!isPlainSegment(folder) || !isPlainSegment(name) || !filePath.startsWith(rootDir + path.sep)) {
+            throw new NotFoundException("Fichier introuvable");
+        }
 
         // Vérifie l'existence
-        if (!fs.existsSync(filePath)) {
+        if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
             throw new NotFoundException("Fichier introuvable");
         }
 

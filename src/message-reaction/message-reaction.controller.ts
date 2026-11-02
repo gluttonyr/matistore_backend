@@ -2,7 +2,9 @@ import { Body, Controller, Delete, Get, Param, Post, UseGuards } from '@nestjs/c
 import { MessageReactionService } from './message-reaction.service';
 import { ApiResponse } from '../common/api-response.interface';
 import { AuthGuard } from '@nestjs/passport';
+import { AdminGuard } from '../auth/admin.guard';
 
+// Not used by the apps yet: writes take the user from the body, so they stay admin-only until they use the token.
 @Controller('message-reactions')
 @UseGuards(AuthGuard('jwt'))
 export class MessageReactionController {
@@ -20,12 +22,14 @@ export class MessageReactionController {
     return { data: summary, message: 'Résumé des réactions', status: 200 };
   }
 
+  @UseGuards(AdminGuard)
   @Post()
   async addReaction(@Body() body: Partial<any>): Promise<ApiResponse> {
     const reaction = await this.reactionService.addReaction(body);
     return { data: reaction, message: 'Réaction ajoutée', status: 201 };
   }
 
+  @UseGuards(AdminGuard)
   @Delete('message/:messageId/user/:userId')
   async removeReaction(@Param('messageId') messageId: string, @Param('userId') userId: string): Promise<ApiResponse> {
     await this.reactionService.removeReaction(messageId, userId);

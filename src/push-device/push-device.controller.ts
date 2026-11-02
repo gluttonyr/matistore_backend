@@ -1,5 +1,6 @@
 import { BadRequestException, Body, Controller, Delete, Get, Param, Post, Put, Req, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
+import { AdminGuard } from '../auth/admin.guard';
 import { ApiResponse } from '../common/api-response.interface';
 import { CreatePushDeviceDto } from './dto/create-push-device.dto';
 import { UpdatePushDeviceDto } from './dto/update-push-device.dto';
@@ -22,6 +23,7 @@ export class PushDeviceController {
     return { data: response, message: 'Appareils push trouvés', status: 200 };
   }
 
+  @UseGuards(AdminGuard)
   @Get(':id')
   async findOne(@Param('id') id: string): Promise<ApiResponse> {
     const device = await this.pushDeviceService.findById(id);
@@ -44,6 +46,7 @@ export class PushDeviceController {
     return { data: this.pushDeviceMapper.toResponse(device), message: 'Appareil push enregistré', status: 201 };
   }
 
+  @UseGuards(AdminGuard)
   @Put(':id')
   async update(@Param('id') id: string, @Body() body: UpdatePushDeviceDto): Promise<ApiResponse> {
     const device = await this.pushDeviceService.update(id, body);
@@ -59,6 +62,7 @@ export class PushDeviceController {
     return { data: null, message: 'Appareil désactivé', status: 200 };
   }
 
+  @UseGuards(AdminGuard)
   @Delete(':id')
   async remove(@Param('id') id: string): Promise<ApiResponse> {
     await this.pushDeviceService.remove(id);

@@ -6,6 +6,7 @@ import { UtilisateurService } from 'src/utilisateur/utilisateur.service';
 import { UserRole } from 'src/utilisateur/enums/user-role.enum';
 import { AuthGuard } from '@nestjs/passport';
 import { DiscussionMapper } from './mappers/discussion.mapper';
+import { AdminGuard } from '../auth/admin.guard';
 
 @Controller('discussions')
 @UseGuards(AuthGuard('jwt'))
@@ -75,7 +76,8 @@ export class DiscussionController {
   }
 
   @Get(':id')
-  async findOne(@Param('id') id: string): Promise<ApiResponse> {
+  async findOne(@Param('id') id: string, @Req() req: any): Promise<ApiResponse> {
+    await this.discussionService.assertAccess(id, Number(req.user.userId));
     const discussion = await this.discussionService.findById(id);
     if (!discussion) {
       throw new Error('Discussion introuvable');
@@ -84,6 +86,7 @@ export class DiscussionController {
     return { data: responseDiscussion, message: 'Discussion trouvée', status: 200 };
   }
 
+  @UseGuards(AdminGuard)
   @Post()
   async create(@Body() body: Partial<any>): Promise<ApiResponse> {
     const discussion = await this.discussionService.create(body);
@@ -119,19 +122,31 @@ export class DiscussionController {
   }
 
   @Get('user/:userId')
-  async findDiscussionsByUser(@Param('userId') userId: string): Promise<ApiResponse> {
+  async findDiscussionsByUser(@Param('userId') userId: string, @Req() req: any): Promise<ApiResponse> {
+    const requester = await this.utilisateurService.findUserById(Number(req.user.userId));
+    if (requester?.trackingId !== userId && requester?.role !== UserRole.ADMIN) {
+      throw new ForbiddenException('Vous n’êtes pas autorisé à accéder à cette ressource');
+    }
     console.log('Recherche des discussions pour l\'utilisateur avec ID :', userId);
     const discussions = await this.discussionService.getDiscussionByUser(userId);
     const responseDiscussions = await this.discussionMapper.toResponseList(discussions);
     return { data: responseDiscussions, message: 'Discussions trouvées', status: 200 };
   }
   @Get('type/:type')
-  async findDiscussionsByType(@Param('type') type: DiscussionType): Promise<ApiResponse> {
+  async findDiscussionsByType(@Param('type') type: DiscussionType, @Req() req: any): Promise<ApiResponse> {
+    // Clients may only list the public forum; private discussions are listed per owner.
+    if (type !== DiscussionType.FORUM) {
+      const requester = await this.utilisateurService.findUserById(Number(req.user.userId));
+      if (requester?.role !== UserRole.ADMIN) {
+        throw new ForbiddenException('Vous n’êtes pas autorisé à accéder à cette ressource');
+      }
+    }
     const discussions = await this.discussionService.getDiscussionByType(type);
     const responseDiscussions = await this.discussionMapper.toResponseList(discussions);
     return { data: responseDiscussions, message: 'Discussions trouvées', status: 200 };
   }
 
+  @UseGuards(AdminGuard)
   @Delete(':id')
   async remove(@Param('id') id: string): Promise<ApiResponse> {
     await this.discussionService.remove(id);

@@ -5,6 +5,7 @@ import { ApiResponse } from '../common/api-response.interface';
 import { UploadService } from '../uploads/upload.service';
 import { BanniereMapper } from './mappers/banniere.mapper';
 import { AuthGuard } from '@nestjs/passport';
+import { AdminGuard } from '../auth/admin.guard';
 
 @UseGuards(AuthGuard('jwt'))
 @Controller('banners')
@@ -32,6 +33,7 @@ export class BanniereController {
     return { data: responseData, message: 'Bannière trouvée', status: 200 };
   }
 
+  @UseGuards(AdminGuard)
   @Post()
   @UseInterceptors(FileInterceptor('file'))
   async create(
@@ -54,6 +56,7 @@ export class BanniereController {
     return { data: responseData, message: 'Bannière créée', status: 201 };
   }
 
+  @UseGuards(AdminGuard)
   @Put('reorder')
   async reorder(@Body('trackingIds') trackingIds: string[]): Promise<ApiResponse> {
     if (!Array.isArray(trackingIds) || trackingIds.length === 0) {
@@ -64,6 +67,7 @@ export class BanniereController {
     return { data: responseList, message: 'Ordre des bannières mis à jour', status: 200 };
   }
 
+  @UseGuards(AdminGuard)
   @Put(':id')
   @UseInterceptors(FileInterceptor('file'))
   async update(
@@ -88,6 +92,7 @@ export class BanniereController {
     return { data: responseData, message: 'Bannière mise à jour', status: 200 };
   }
 
+  @UseGuards(AdminGuard)
   @Delete(':id')
   async remove(@Param('id') id: string): Promise<ApiResponse> {
     await this.banniereService.remove(id);

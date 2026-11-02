@@ -1,4 +1,5 @@
-import { Injectable, BadRequestException, OnApplicationBootstrap, NotFoundException } from '@nestjs/common';
+import { Injectable, BadRequestException, OnApplicationBootstrap, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { UserRole } from 'src/utilisateur/enums/user-role.enum';
 import { DiscussionRepository } from './discussion.repository';
 import { Discussion, DiscussionStatus, DiscussionType } from './entities/discussion.entity';
 import { User } from 'src/utilisateur/entities/user.entity';
@@ -155,6 +156,27 @@ getDiscussionByUser(userId: string) {
   async countUnreadForUser(userId: number): Promise<number> {
     const result = await this.discussionRepository.countUnreadMessagesForUser(userId);
     return Number(result?.count ?? 0);
+  }
+
+  // The forum is a public room; any other discussion is limited to its participants and the admins.
+  async canAccess(discussionId: string, userId: number): Promise<boolean> {
+    const user = await this.discussionRepository.manager.findOne(User, { where: { id: userId }, select: { id: true, role: true } });
+    if (!user) return false;
+    if (user.role === UserRole.ADMIN) return true;
+    const discussion = await this.discussionRepository
+      .createQueryBuilder('discussion')
+      .leftJoin('discussion.participants', 'participant')
+      .leftJoin('participant.user', 'user')
+      .where('discussion.trackingId = :discussionId', { discussionId })
+      .andWhere('(discussion.type = :forum OR user.id = :userId)', { forum: DiscussionType.FORUM, userId })
+      .getOne();
+    return !!discussion;
+  }
+
+  async assertAccess(discussionId: string, userId: number): Promise<void> {
+    if (!(await this.canAccess(discussionId, userId))) {
+      throw new ForbiddenException('Vous n’avez pas accès à cette discussion');
+    }
   }
 
   async getUserByDiscussionId(discussionId: string): Promise<User> {

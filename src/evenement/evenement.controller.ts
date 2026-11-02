@@ -5,6 +5,7 @@ import { ApiResponse } from '../common/api-response.interface';
 import { UploadService } from '../uploads/upload.service';
 import { EvenementMapper } from './mappers/evenement.mapper';
 import { AuthGuard } from '@nestjs/passport';
+import { AdminGuard } from '../auth/admin.guard';
 
 @Controller('events')
 @UseGuards(AuthGuard('jwt'))
@@ -32,6 +33,7 @@ export class EvenementController {
     return { data: responseData, message: 'Événement trouvé', status: 200 };
   }
 
+  @UseGuards(AdminGuard)
   @Post()
   @UseInterceptors(FileInterceptor('file'))
   async create(
@@ -54,6 +56,7 @@ export class EvenementController {
     return { data: responseData, message: 'Événement créé', status: 201 };
   }
 
+  @UseGuards(AdminGuard)
   @Put(':id')
   @UseInterceptors(FileInterceptor('file'))
   async update(
@@ -78,6 +81,7 @@ export class EvenementController {
     return { data: responseData, message: 'Événement mis à jour', status: 200 };
   }
 
+  @UseGuards(AdminGuard)
   @Delete(':id')
   async remove(@Param('id') id: string): Promise<ApiResponse> {
     await this.evenementService.remove(id);

@@ -5,6 +5,7 @@ import { ApiResponse } from '../common/api-response.interface';
 import { UploadService } from '../uploads/upload.service';
 import { StickerMapper } from './mappers/sticker.mapper';
 import { AuthGuard } from '@nestjs/passport';
+import { AdminGuard } from '../auth/admin.guard';
 
 @Controller('stickers')
 @UseGuards(AuthGuard('jwt'))
@@ -32,6 +33,7 @@ export class StickerController {
     return { data: responseData, message: 'Sticker trouvé', status: 200 };
   }
 
+  @UseGuards(AdminGuard)
   @Post()
   @UseInterceptors(FileInterceptor('file'))
   async create(
@@ -54,6 +56,7 @@ export class StickerController {
     return { data: responseData, message: 'Sticker créé', status: 201 };
   }
 
+  @UseGuards(AdminGuard)
   @Put(':id')
   @UseInterceptors(FileInterceptor('file'))
   async update(
@@ -78,6 +81,7 @@ export class StickerController {
     return { data: responseData, message: 'Sticker mis à jour', status: 200 };
   }
 
+  @UseGuards(AdminGuard)
   @Delete(':id')
   async remove(@Param('id') id: string): Promise<ApiResponse> {
     await this.stickerService.remove(id);

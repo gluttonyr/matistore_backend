@@ -4,6 +4,7 @@ import { CreateOperateurDto } from './dto/create-operateur.dto';
 import { UpdateOperateurDto } from './dto/update-operateur.dto';
 import { ApiResponse } from '../common/api-response.interface';
 import { AuthGuard } from '@nestjs/passport';
+import { AdminGuard } from '../auth/admin.guard';
 import { OperateurMapper } from './mappers/operateur.mapper';
 
 @Controller('operateurs')
@@ -28,6 +29,7 @@ export class OperateurController {
     return { data: responseOperateur, message: 'Opérateur trouvé', status: 200 };
   }
 
+  @UseGuards(AdminGuard)
   @Post()
   async create(@Body() body: CreateOperateurDto): Promise<ApiResponse> {
     const operateur = await this.operateurService.create(body);
@@ -35,6 +37,7 @@ export class OperateurController {
     return { data: responseOperateur, message: 'Opérateur créé', status: 201 };
   }
 
+  @UseGuards(AdminGuard)
   @Put(':id')
   async update(@Param('id') id: string, @Body() body: UpdateOperateurDto): Promise<ApiResponse> {
     const operateur = await this.operateurService.update(id, body);
@@ -42,6 +45,7 @@ export class OperateurController {
     return { data: responseOperateur, message: 'Opérateur mis à jour', status: 200 };
   }
 
+  @UseGuards(AdminGuard)
   @Delete(':id')
   async remove(@Param('id') id: string): Promise<ApiResponse> {
     await this.operateurService.remove(id);

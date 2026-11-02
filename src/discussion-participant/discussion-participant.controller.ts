@@ -2,6 +2,7 @@ import { Body, Controller, Delete, Get, Param, Post, UseGuards } from '@nestjs/c
 import { DiscussionParticipantService } from './discussion-participant.service';
 import { ApiResponse } from '../common/api-response.interface';
 import { AuthGuard } from '@nestjs/passport';
+import { AdminGuard } from '../auth/admin.guard';
 
 @Controller('discussion-participants')
 @UseGuards(AuthGuard('jwt'))
@@ -14,12 +15,14 @@ export class DiscussionParticipantController {
     return { data: participants, message: 'Participants trouvés', status: 200 };
   }
 
+  @UseGuards(AdminGuard)
   @Post()
   async addParticipant(@Body() body: Partial<any>): Promise<ApiResponse> {
     const participant = await this.participantService.addParticipant(body);
     return { data: participant, message: 'Participant ajouté', status: 201 };
   }
 
+  @UseGuards(AdminGuard)
   @Delete(':id')
   async removeParticipant(@Param('id') id: string): Promise<ApiResponse> {
     await this.participantService.removeParticipant(id);
