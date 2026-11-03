@@ -123,6 +123,13 @@ async updatePassword(@Req() req: any,@Body() body:any): Promise<ApiResponse> {
     return { data: this.userMapper.toResponse(user), message: 'Utilisateur mis à jour', status: 200 };
   }
 
+  // Declared before ':id' so "me" is never read as an id.
+  @Delete('me')
+  async deleteOwnAccount(@Req() req: any): Promise<ApiResponse> {
+    await this.utilisateurService.deleteOwnAccount(Number(req.user.userId));
+    return { data: null, message: 'Compte supprimé', status: 200 };
+  }
+
   @UseGuards(AdminGuard)
   @Delete(':id')
   async remove(@Param('id') id: string): Promise<ApiResponse> {

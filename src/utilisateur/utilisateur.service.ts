@@ -8,6 +8,9 @@ import { UserMapper } from './mappers/user.mapper';
 import { DiscussionService } from 'src/discussion/discussion.service';
 import { Discussion } from 'src/discussion/entities/discussion.entity';
 import { UserRole } from './enums/user-role.enum';
+import { In } from 'typeorm';
+import { Transaction, TransactionStatus } from 'src/transaction/entities/transaction.entity';
+import { PushDevice } from 'src/push-device/entities/push-device.entity';
 
 @Injectable()
 export class UtilisateurService implements OnModuleInit {
@@ -238,4 +241,48 @@ export class UtilisateurService implements OnModuleInit {
     }
     return this.userRepository.remove(user);
   }
+
+  // Account deletion requested by the user (App Store guideline 5.1.1(v)). Transactions must stay for the
+  // financial records and reference the user row, so the row is anonymised instead of removed: every personal
+  // field is erased, the email/Google/Apple links are freed and the account can no longer sign in.
+  async deleteOwnAccount(userId: number) {
+    const user = await this.findUserById(userId);
+    if (!user || !user.active) {
+      throw new BadRequestException('Compte introuvable');
+    }
+    if (user.role === UserRole.ADMIN) {
+      throw new BadRequestException('Un compte administrateur ne peut pas être supprimé depuis l’application');
+    }
+    const openTransactions = await this.userRepository.manager.count(Transaction, {
+      where: { user: { id: userId }, statut: In(OPEN_TRANSACTION_STATUSES) },
+    });
+    if (openTransactions > 0) {
+      throw new BadRequestException('Une transaction est encore en cours sur votre compte. Attendez son traitement avant de supprimer le compte.');
+    }
+
+    await this.userRepository.manager.update(PushDevice, { userId }, { active: false });
+    Object.assign(user, {
+      nom: 'Compte',
+      prenom: 'supprimé',
+      username: 'Compte supprimé',
+      email: `deleted-${user.trackingId}@deleted.matistore.tech`,
+      telephone: null,
+      image: null,
+      password: null,
+      googleId: null,
+      appleId: null,
+      provider: null,
+      expoPushToken: null,
+      active: false,
+    });
+    await this.userRepository.save(user);
+  }
 }
+
+const OPEN_TRANSACTION_STATUSES = [
+  TransactionStatus.EN_ATTENTE_AUTO,
+  TransactionStatus.EN_VERIFICATION,
+  TransactionStatus.EN_ATTENTE_PREUVE,
+  TransactionStatus.EN_ATTENTE_ADMIN,
+  TransactionStatus.EN_RECLAMATION,
+];

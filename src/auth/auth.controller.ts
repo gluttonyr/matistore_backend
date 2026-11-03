@@ -20,7 +20,7 @@ export class AuthController {
   }
 
   @Post('verify-google-token')
-  async verifyGoogleToken(@Body() body: { idToken: string }): Promise<ApiResponse> {
+  async verifyGoogleToken(@Body() body: { idToken: string; createAccount?: boolean }): Promise<ApiResponse> {
     const googleUser = await this.googleOauthService.validateGoogleToken(body.idToken);
 
     const user = await this.utilisateurService.findByEmail(googleUser.email);
@@ -40,17 +40,38 @@ export class AuthController {
       };
     }
 
-    // Nouveau compte : on ne crée rien tout de suite — le mobile redirige
-    // vers l'étape 2 (mot de passe + téléphone) qui appelle /auth/register
-    // pour finaliser la création avec les infos glanées ici.
+    // Nouveau compte, anciennes versions de l'app (sans createAccount) : rien n'est créé,
+    // l'app passe par l'étape 2 (mot de passe + téléphone) qui appelle /auth/register.
+    if (body.createAccount !== true) {
+      return {
+        data: {
+          access_token: null,
+          user: googleUser,
+          isNewUser: true,
+        },
+        message: 'Nouvel utilisateur Google, finalisation requise',
+        status: 200,
+      };
+    }
+
+    // Nouveau compte, nouvelles versions : Google a déjà vérifié l'identité, le compte est
+    // créé ici (sans mot de passe ni téléphone) et la session s'ouvre directement.
+    const created = await this.utilisateurService.create({
+      prenom: googleUser.prenom || (googleUser.nom ? '' : 'Client'),
+      nom: googleUser.nom,
+      email: googleUser.email,
+      googleId: googleUser.googleId,
+      provider: 'google',
+    } as CreateUserDto);
+    const token = await this.authService.getToken(created);
     return {
       data: {
-        access_token: null,
-        user: googleUser,
-        isNewUser: true,
+        access_token: token.access_token,
+        user: this.utilisateurMapper.toResponse(created),
+        isNewUser: false,
       },
-      message: 'Nouvel utilisateur Google, finalisation requise',
-      status: 200,
+      message: 'Compte Google créé',
+      status: 201,
     };
   }
 
@@ -80,8 +101,9 @@ export class AuthController {
   @Post('register')
   async register(@Body() body: CreateUserDto): Promise<ApiResponse> {
     const registration = body as CreateUserDto;
-    // Public route: a sign-up never chooses its own role or account state.
-    const { role: _role, active: _active, ...safeBody } = body;
+    // Public route: a sign-up never chooses its own role or account state, and never links a Google or
+    // Apple identity it has not proven (Google accounts are created by verify-google-token, Apple below).
+    const { role: _role, active: _active, googleId: _googleId, appleId: _appleId, ...safeBody } = body;
     let payload = { ...safeBody } as CreateUserDto;
     if (registration.provider === 'apple') {
       if (!registration.identityToken) throw new BadRequestException('Jeton Apple requis pour terminer cette inscription');

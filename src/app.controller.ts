@@ -39,6 +39,7 @@ export class AppController {
       <p>MatiStore est une application mobile conçue pour faciliter l'accès aux produits et services proposés par notre plateforme.</p>
       <div class="links">
         <a href="https://play.google.com/store/apps/details?id=com.urbain_diligence.matistore_mobile">Télécharger l'application Android</a>
+        <a href="/support">Support et assistance</a>
         <a href="/privacy-rule">Règles de confidentialité</a>
       </div>
     </main>
@@ -145,6 +146,57 @@ export class AppController {
       <h2>Nous contacter</h2>
       <p>Pour toute question concernant cette politique, contactez-nous par e-mail : <a href="mailto:koufessirolland@gmail.com">koufessirolland@gmail.com</a>.</p>
       <p><a href="/">Retour à la page d'accueil de MatiStore</a></p>
+    </main>
+  </body>
+</html>`;
+  }
+
+  // Support URL given to the App Store (guideline 1.5): how to reach us and get help.
+  @Get('support')
+  @Header('Content-Type', 'text/html; charset=utf-8')
+  getSupportPage(): string {
+    return `<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Support | MatiStore</title>
+    <style>
+      :root { font-family: Arial, sans-serif; color: #17202a; background: #f5f7fa; }
+      body { margin: 0; }
+      main { box-sizing: border-box; max-width: 820px; margin: 0 auto; padding: 36px 24px 64px; background: #fff; min-height: 100vh; }
+      header { display: flex; align-items: center; gap: 16px; margin-bottom: 28px; }
+      header img { width: 64px; height: 64px; object-fit: contain; border-radius: 14px; }
+      h1 { margin: 0; font-size: 1.8rem; }
+      h2 { margin-top: 32px; font-size: 1.2rem; }
+      p, li { line-height: 1.65; }
+      li { margin: 8px 0; }
+      a { color: #1264a3; }
+      .contact { border: 1px solid #d9e1e8; border-radius: 12px; padding: 16px 20px; }
+      .contact p { margin: 6px 0; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header><img src="/assets/logo.png" alt="Logo MatiStore"><h1>Support MatiStore</h1></header>
+      <p>Une question sur un dépôt, un retrait ou votre compte ? Notre équipe vous répond.</p>
+
+      <h2>Nous contacter</h2>
+      <div class="contact">
+        <p><strong>Dans l'application :</strong> ouvrez l'onglet <em>Chats</em>, puis la conversation <em>Support</em>, et écrivez-nous.</p>
+        <p><strong>WhatsApp :</strong> <a href="https://wa.me/22896589141">+228 96 58 91 41</a></p>
+        <p><strong>E-mail :</strong> <a href="mailto:koufessirolland@gmail.com">koufessirolland@gmail.com</a></p>
+      </div>
+
+      <h2>Questions fréquentes</h2>
+      <h3>Mon dépôt n'est pas encore crédité</h3>
+      <p>La vérification du paiement Mobile Money est automatique et prend en général quelques minutes. Suivez l'état de votre dépôt dans <em>Accueil &gt; Mes transactions</em>. Si le paiement a été envoyé mais que la transaction est refusée, utilisez le bouton <em>Réclamer cette transaction</em> : notre équipe vérifie et vous répond.</p>
+      <h3>Comment faire un retrait ?</h3>
+      <p>Depuis l'accueil, choisissez <em>Retrait</em>, indiquez votre opérateur et votre identifiant, puis saisissez le code de retrait généré dans votre compte de jeu et le numéro Mobile Money qui recevra l'argent.</p>
+      <h3>Comment supprimer mon compte ?</h3>
+      <p>Dans l'application, ouvrez l'onglet <em>Profil</em> puis touchez <em>Supprimer mon compte</em> et confirmez. Les données de votre profil (nom, e-mail, téléphone, photo) sont effacées et le compte ne peut plus être utilisé. L'historique des transactions (montants, numéros utilisés, références de paiement) est conservé pour nos obligations légales et comptables. Vous pouvez aussi demander la suppression par e-mail.</p>
+
+      <p><a href="/privacy-rule">Règles de confidentialité</a> · <a href="/">Accueil MatiStore</a></p>
     </main>
   </body>
 </html>`;
