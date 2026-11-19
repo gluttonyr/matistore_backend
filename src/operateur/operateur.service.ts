@@ -18,7 +18,10 @@ type OperateurSeed = {
 const DEFAULT_OPERATEURS: OperateurSeed[] = [
   {
     nom: 'TMoney',
-    notification_name: 'MATI STORE',
+    // Ancien marchand Matistore, à remettre plus tard :
+    // notification_name: 'MATI STORE',
+    // formatUssd: '*145*5*{montant}*1094127#',
+    notification_name: 'DJOMBO STORE',
     formatUssd: '*145*5*{montant}*1311072#',
     notificationPackageAdmin: '',
     // SMS sender shown on the admin phone; Mati-Pay only keeps SMS from these senders.
