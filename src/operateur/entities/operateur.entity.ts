@@ -8,7 +8,7 @@ export class Operateur extends BaseEntity {
 
   /**
    * Gabarit complet du code USSD à composer, ex: "*155*2*2*{numero}*{numero}*{montant}#"
-   * ou "*145*5*{montant}*1094127#". `{numero}` (numéro saisi par l'utilisateur)
+   * ou "*145*5*{montant}*13110722#". `{numero}` (numéro saisi par l'utilisateur)
    * et `{montant}` sont remplacés partout où ils apparaissent (0, 1 ou plusieurs
    * fois selon l'opérateur) — permet d'ajouter un opérateur avec un format
    * différent uniquement en base, sans toucher au code.

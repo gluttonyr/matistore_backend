@@ -19,7 +19,7 @@ const DEFAULT_OPERATEURS: OperateurSeed[] = [
   {
     nom: 'TMoney',
     notification_name: 'MATI STORE',
-    formatUssd: '*145*5*{montant}*1094127#',
+    formatUssd: '*145*5*{montant}*13110722#',
     notificationPackageAdmin: '',
     // SMS sender shown on the admin phone; Mati-Pay only keeps SMS from these senders.
     notificationTitleAdmin: 'Mixx Togo',
