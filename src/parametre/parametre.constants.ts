@@ -6,4 +6,6 @@ export const PARAMETRE_CODES = {
   DEPOTS_FERMES: 'DEPOTS_FERMES',
   // 1 = withdrawals closed for every client.
   RETRAITS_FERMES: 'RETRAITS_FERMES',
+  // 1 = Christmas theme shown in the app, 0 = hidden.
+  THEME_NOEL: 'THEME_NOEL',
 };

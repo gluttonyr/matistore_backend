@@ -87,6 +87,20 @@ export class ParametreService implements OnModuleInit {
     }
 
     // ============================================================
+    // THEME_NOEL
+    // ============================================================
+
+    if (!(await this.parametreRepository.findByCode(PARAMETRE_CODES.THEME_NOEL))) {
+      await this.parametreRepository.save(
+        this.parametreRepository.create({
+          code: PARAMETRE_CODES.THEME_NOEL,
+          libelle: 'Thème de Noël dans l’appli (1 = affiché, 0 = caché)',
+          valeur: 1,
+        }),
+      );
+    }
+
+    // ============================================================
     // IOS_MIN_VERSION_CODE
     // ============================================================
 
