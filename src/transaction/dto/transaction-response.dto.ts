@@ -10,6 +10,7 @@ export class TransactionResponseDto {
   @Expose() statut!: TransactionStatus;
   @Expose() montant!: number;
   @Expose() operateur?: string;
+  @Expose() bookmaker!: string;
   @Expose() numeroTelephone?: string;
   @Expose() compteDestinataire?: string;
   @Expose() codeRetrait?: string;

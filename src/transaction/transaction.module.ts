@@ -12,6 +12,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
 import { UtilisateurModule } from '../utilisateur/utilisateur.module';
 import { OperateurModule } from '../operateur/operateur.module';
 import { ServculModule } from '../servcul/servcul.module';
+import { BookmakerModule } from '../bookmaker/bookmaker.module';
 import { AppNotificationModule } from '../app-notification/app-notification.module';
 import { AdminCaptureDevice } from './entities/admin-capture-device.entity';
 import { AdminCaptureState } from './entities/admin-capture-state.entity';
@@ -28,6 +29,7 @@ import { ParametreModule } from '../parametre/parametre.module';
     UtilisateurModule,
     OperateurModule,
     ServculModule,
+    BookmakerModule,
     AppNotificationModule,
     ParametreModule,
   ],

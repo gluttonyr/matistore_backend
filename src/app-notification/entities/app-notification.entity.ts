@@ -13,6 +13,10 @@ export class AppNotification extends BaseEntity {
   @Column({ name: 'image_url', type: 'text', nullable: true })
   imageUrl?: string | null;
 
+  /** What the notification opens, e.g. "coupon:<id>". */
+  @Column({ type: 'varchar', length: 120, nullable: true })
+  link?: string | null;
+
   @ManyToOne(() => User, { nullable: false, onDelete: 'CASCADE' })
   @JoinColumn({ name: 'user_id' })
   user!: User;

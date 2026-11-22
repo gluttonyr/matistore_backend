@@ -46,6 +46,36 @@ describe('ServculService', () => {
     });
   });
 
+  it('signs a MELBET deposit with the MELBET keys and address, never the 1XBET ones', async () => {
+    const melbet = new ServculService(new ConfigService({
+      ...values,
+      MELBET_HASH: 'melbet-hash',
+      MELBET_CASHIER_PASS: '999',
+      MELBET_CASHDESK_ID: '55',
+      MELBET_API_BASE_URL: 'https://cashdesk.melbet.example/CashdeskBotAPI/',
+    }));
+    await melbet.addPlayerDeposit(76, { lng: 'ru', summa: 100 }, 'MELBET');
+
+    const [url, request] = fetchSpy.mock.calls[0] as [string, RequestInit];
+    const headers = request.headers as Record<string, string>;
+    expect(url).toBe('https://cashdesk.melbet.example/CashdeskBotAPI/Deposit/76/Add');
+    expect(headers.sign).toBe(sha256(`${sha256('hash=melbet-hash&lng=ru&userid=76')}${md5('summa=100&cashierpass=999&cashdeskid=55')}`));
+    expect(JSON.parse(request.body as string)).toEqual({
+      cashdeskId: 55,
+      lng: 'ru',
+      summa: 100,
+      confirm: md5('76:melbet-hash'),
+    });
+  });
+
+  it('refuses MELBET without its own keys and address, even when 1XBET is configured', async () => {
+    jest.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
+    await expect(service.findPlayer(76, 'MELBET')).rejects.toThrow(
+      'Configuration MELBET incomplète: renseignez MELBET_HASH, MELBET_CASHIER_PASS, MELBET_CASHDESK_ID et MELBET_API_BASE_URL',
+    );
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
   it('does not call Servcul when required credentials are missing', async () => {
     const unconfiguredService = new ServculService(new ConfigService());
 

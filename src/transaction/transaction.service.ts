@@ -24,6 +24,8 @@ import { UtilisateurService } from '../utilisateur/utilisateur.service';
 import { OperateurService } from '../operateur/operateur.service';
 import { Operateur } from '../operateur/entities/operateur.entity';
 import { ServculService } from '../servcul/servcul.service';
+import { BookmakerService } from '../bookmaker/bookmaker.service';
+import { bookmakerOf } from '../bookmaker/bookmaker.constants';
 import { UserRole } from '../utilisateur/enums/user-role.enum';
 import { MessageGateway } from '../message/message.gatway';
 import { AppNotificationService } from '../app-notification/app-notification.service';
@@ -65,6 +67,7 @@ export class TransactionService implements OnModuleInit, OnModuleDestroy {
     private readonly userService: UtilisateurService,
     private readonly operateurService: OperateurService,
     private readonly servculService: ServculService,
+    private readonly bookmakerService: BookmakerService,
     private readonly appNotificationService: AppNotificationService,
     private readonly captureAvailability: AdminCaptureAvailabilityService,
   ) {}
@@ -104,16 +107,18 @@ export class TransactionService implements OnModuleInit, OnModuleDestroy {
     if (payload.type === TransactionType.RETRAIT && !payload.operateur?.trim()) {
       throw new BadRequestException('Choisissez un opérateur pour le retrait');
     }
+    // Apps installed before the bookmaker choice send none: requireActive() then picks 1XBET.
+    const bookmaker = await this.bookmakerService.requireActive(payload.bookmaker);
     const accountId = payload.compteDestinataire?.trim();
     if (!accountId || !/^\d+$/.test(accountId)) {
-      throw new BadRequestException('Un ID 1XBET numérique est requis');
+      throw new BadRequestException(`Un ID ${bookmaker.nom} numérique est requis`);
     }
     const playerId = Number(accountId);
     if (!Number.isSafeInteger(playerId)) {
-      throw new BadRequestException('L’ID 1XBET est invalide');
+      throw new BadRequestException(`L’ID ${bookmaker.nom} est invalide`);
     }
-    const player = await this.servculService.findPlayer(playerId);
-    if (!player) throw new BadRequestException('ID 1XBET introuvable');
+    const player = await this.servculService.findPlayer(playerId, bookmaker.code);
+    if (!player) throw new BadRequestException(`ID ${bookmaker.nom} introuvable`);
     const transactionDiscussion = await this.discussionService.getDepotRetraitDiscussion(userId);
 
     const operateur = payload.operateur
@@ -126,6 +131,7 @@ export class TransactionService implements OnModuleInit, OnModuleDestroy {
       ...payload,
       montant: payload.montant ?? 0,
       compteDestinataire: String(playerId),
+      bookmaker: bookmaker.code,
       operateur: operateur?.nom ?? payload.operateur,
       discussionTrackingId: transactionDiscussion.trackingId,
       statut: payload.type === TransactionType.RETRAIT
@@ -182,7 +188,7 @@ export class TransactionService implements OnModuleInit, OnModuleDestroy {
     if (!transaction) throw new BadRequestException('Ce retrait n’attend pas une validation de paiement administrateur');
     await this.postSystemMessage(
       transaction,
-      `✅ Votre compte 1XBET a été débité${transaction.montant > 0 ? ` de ${transaction.montant} FCFA` : ''}. Le retrait a été envoyé au numéro indiqué.`,
+      `✅ Votre compte ${bookmakerOf(transaction)} a été débité${transaction.montant > 0 ? ` de ${transaction.montant} FCFA` : ''}. Le retrait a été envoyé au numéro indiqué.`,
     );
     await this.notifyStatusChange(transaction);
     return transaction;
@@ -246,7 +252,7 @@ export class TransactionService implements OnModuleInit, OnModuleDestroy {
     }));
     const amount = `${transaction.montant.toLocaleString('fr-FR')} FCFA`;
     const message = dto.decision === TransactionStatus.VALIDEE
-      ? `✅ Après vérification, nous avons confirmé votre paiement de ${amount} et crédité votre compte 1XBET.`
+      ? `✅ Après vérification, nous avons confirmé votre paiement de ${amount} et crédité votre compte ${bookmakerOf(transaction)}.`
       : `❌ Nous n’avons pas pu confirmer votre dépôt de ${amount}.\nMotif : ${transaction.motifRejet ?? '—'}`;
     await this.postSystemMessage(transaction, message);
     await this.notifyStatusChange(transaction);
@@ -569,7 +575,7 @@ export class TransactionService implements OnModuleInit, OnModuleDestroy {
 
     await this.postSystemMessage(
       saved,
-      '✅ Paiement reçu. Nous créditons votre compte 1XBET.',
+      `✅ Paiement reçu. Nous créditons votre compte ${bookmakerOf(saved)}.`,
     );
     await this.notifyStatusChange(saved);
     try {
@@ -591,7 +597,7 @@ export class TransactionService implements OnModuleInit, OnModuleDestroy {
       }
       await this.postSystemMessage(
         completed,
-        `✅ Dépôt validé. Votre compte 1XBET a été crédité${completed.montant > 0 ? ` de ${completed.montant} FCFA` : ''}.`,
+        `✅ Dépôt validé. Votre compte ${bookmakerOf(completed)} a été crédité${completed.montant > 0 ? ` de ${completed.montant} FCFA` : ''}.`,
       );
       await this.notifyStatusChange(completed);
       return { transaction: completed, credited: true };
@@ -605,7 +611,7 @@ export class TransactionService implements OnModuleInit, OnModuleDestroy {
         }),
         error instanceof Error ? error.stack : undefined,
       );
-      const creditError = 'Votre paiement a été reçu, mais nous n’avons pas encore pu créditer votre compte 1XBET. Nous vérifions la transaction. Ne recommencez pas le dépôt.';
+      const creditError = `Votre paiement a été reçu, mais nous n’avons pas encore pu créditer votre compte ${bookmakerOf(saved)}. Nous vérifions la transaction. Ne recommencez pas le dépôt.`;
       const current = await this.repository.setAutomaticTransactionError(
         trackingId,
         TransactionStatus.EN_VERIFICATION,
@@ -615,7 +621,7 @@ export class TransactionService implements OnModuleInit, OnModuleDestroy {
       if (current?.statut === TransactionStatus.EN_ATTENTE_PREUVE) {
         await this.postSystemMessage(
           current,
-          '⚠️ Votre paiement a été reçu, mais le crédit de votre compte 1XBET n’a pas encore abouti. Nous vérifions la transaction. Ne recommencez pas le dépôt.',
+          `⚠️ Votre paiement a été reçu, mais le crédit de votre compte ${bookmakerOf(saved)} n’a pas encore abouti. Nous vérifions la transaction. Ne recommencez pas le dépôt.`,
         );
         await this.notifyStatusChange(current);
       }
@@ -747,14 +753,14 @@ export class TransactionService implements OnModuleInit, OnModuleDestroy {
     const accountId = transaction.compteDestinataire?.trim();
     const playerId = accountId && /^\d+$/.test(accountId) ? Number(accountId) : NaN;
     if (!Number.isSafeInteger(playerId)) {
-      throw new BadRequestException('ID 1XBET manquant ou invalide');
+      throw new BadRequestException(`ID ${bookmakerOf(transaction)} manquant ou invalide`);
     }
 
     if (transaction.type === TransactionType.DEPOT) {
       await this.servculService.addPlayerDeposit(playerId, {
         lng: 'ru',
         summa: transaction.montant,
-      });
+      }, bookmakerOf(transaction));
       return;
     }
     if (!transaction.codeRetrait?.trim()) {
@@ -763,7 +769,7 @@ export class TransactionService implements OnModuleInit, OnModuleDestroy {
     const payout = await this.servculService.payoutPlayer(playerId, {
       lng: 'ru',
       code: transaction.codeRetrait.trim(),
-    });
+    }, bookmakerOf(transaction));
     const payoutAmount = Number(payout.summa);
     const absolutePayoutAmount = Math.abs(payoutAmount);
     transaction.montant = payout.summa !== null && Number.isSafeInteger(absolutePayoutAmount) && absolutePayoutAmount > 0
@@ -780,7 +786,7 @@ export class TransactionService implements OnModuleInit, OnModuleDestroy {
       if (!completed) throw new ConflictException('Le retrait a changé d’état pendant son traitement');
       await this.postSystemMessage(
         completed,
-        `✅ Demande de retrait validée. Votre compte 1XBET a été débité${completed.montant > 0 ? ` de ${completed.montant} FCFA` : ''}. Patientez pendant la préparation de l’envoi au numéro indiqué.`,
+        `✅ Demande de retrait validée. Votre compte ${bookmakerOf(completed)} a été débité${completed.montant > 0 ? ` de ${completed.montant} FCFA` : ''}. Patientez pendant la préparation de l’envoi au numéro indiqué.`,
       );
       await this.notifyStatusChange(completed);
       return completed;
@@ -792,14 +798,14 @@ export class TransactionService implements OnModuleInit, OnModuleDestroy {
       if (this.isDefinitiveInvalidWithdrawalCode(error)) {
         const removed = await this.repository.removeRejectedWithdrawal(transaction.trackingId);
         if (removed) {
-          throw new BadRequestException('Code de retrait invalide ou expiré. Vérifiez le code dans votre compte 1XBET puis réessayez.');
+          throw new BadRequestException(`Code de retrait invalide ou expiré. Vérifiez le code dans votre compte ${bookmakerOf(transaction)} puis réessayez.`);
         }
         this.logger.warn(JSON.stringify({
           event: 'transaction.servcul.invalid-payout-code.cleanup-failed',
           transactionId: transaction.trackingId,
         }));
       }
-      const message = this.getPayoutFailureMessage(error);
+      const message = this.getPayoutFailureMessage(error, transaction);
       const current = await this.repository.setAutomaticTransactionError(
         transaction.trackingId,
         TransactionStatus.EN_VERIFICATION,
@@ -837,7 +843,7 @@ export class TransactionService implements OnModuleInit, OnModuleDestroy {
     return identifiesCode && explicitlyInvalid;
   }
 
-  private getPayoutFailureMessage(error: unknown): string {
+  private getPayoutFailureMessage(error: unknown, payoutTransaction: Transaction): string {
     const getResponse = (error as { getResponse?: () => unknown } | null)?.getResponse;
     if (typeof getResponse === 'function') {
       const payload = getResponse.call(error);
@@ -871,7 +877,7 @@ export class TransactionService implements OnModuleInit, OnModuleDestroy {
           /code|код/.test(reason)
           && /invalid|incorrect|wrong|expired|невер|неправ|ист[её]к/.test(reason)
         );
-        if (invalidCode) return 'Code de retrait invalide ou expiré. Vérifiez le code dans votre compte 1XBET puis réessayez.';
+        if (invalidCode) return `Code de retrait invalide ou expiré. Vérifiez le code dans votre compte ${bookmakerOf(payoutTransaction)} puis réessayez.`;
       }
     }
     return 'Le code de retrait n’a pas pu être confirmé pour le moment. Ne le renvoyez pas. Nous vérifions votre demande.';
@@ -879,25 +885,25 @@ export class TransactionService implements OnModuleInit, OnModuleDestroy {
 
   private transactionStatusMessage(transaction: Transaction): string {
     if (transaction.statut === TransactionStatus.EN_VERIFICATION && transaction.type === TransactionType.DEPOT && transaction.referencePaiement) {
-      return 'Votre paiement a été reçu et nous créditons votre compte 1XBET.';
+      return `Votre paiement a été reçu et nous créditons votre compte ${bookmakerOf(transaction)}.`;
     }
     const label = transaction.type === TransactionType.DEPOT ? 'Dépôt' : 'Retrait';
     switch (transaction.statut) {
       case TransactionStatus.EN_ATTENTE_AUTO: return 'Nous vérifions votre paiement.';
       case TransactionStatus.EN_VERIFICATION: return transaction.type === TransactionType.RETRAIT
-        ? 'Nous vérifions votre code de retrait et votre compte 1XBET.'
+        ? `Nous vérifions votre code de retrait et votre compte ${bookmakerOf(transaction)}.`
         : 'Nous vérifions votre transaction.';
       case TransactionStatus.EN_ATTENTE_PREUVE: return transaction.type === TransactionType.RETRAIT
         ? 'Le code de retrait n’a pas pu être confirmé pour le moment. Nous vérifions votre demande. Ne renvoyez pas ce code.'
         : 'Nous n’avons pas encore pu confirmer votre paiement. Nous vérifions votre demande avant que vous ne recommenciez.';
       case TransactionStatus.EN_ATTENTE_ADMIN:
         return transaction.type === TransactionType.RETRAIT
-          ? `Demande de retrait validée. Votre compte 1XBET a été débité${transaction.montant > 0 ? ` de ${transaction.montant} FCFA` : ''}. Patientez pendant la préparation de l’envoi au numéro indiqué.`
+          ? `Demande de retrait validée. Votre compte ${bookmakerOf(transaction)} a été débité${transaction.montant > 0 ? ` de ${transaction.montant} FCFA` : ''}. Patientez pendant la préparation de l’envoi au numéro indiqué.`
           : 'Votre dépôt attend encore son traitement. Nous vous informerons dès sa mise à jour.';
       case TransactionStatus.EN_RECLAMATION: return `Nous vérifions votre réclamation concernant le ${label.toLowerCase()}.`;
       case TransactionStatus.VALIDEE: return transaction.type === TransactionType.DEPOT
-        ? `Dépôt validé. Votre compte 1XBET a été crédité${transaction.montant > 0 ? ` de ${transaction.montant} FCFA` : ''}.`
-        : `Votre compte 1XBET a été débité${transaction.montant > 0 ? ` de ${transaction.montant} FCFA` : ''}. Le retrait a été envoyé au numéro indiqué.`;
+        ? `Dépôt validé. Votre compte ${bookmakerOf(transaction)} a été crédité${transaction.montant > 0 ? ` de ${transaction.montant} FCFA` : ''}.`
+        : `Votre compte ${bookmakerOf(transaction)} a été débité${transaction.montant > 0 ? ` de ${transaction.montant} FCFA` : ''}. Le retrait a été envoyé au numéro indiqué.`;
       case TransactionStatus.REJETEE: return `Nous avons refusé votre ${label.toLowerCase()}.${transaction.motifRejet ? ` ${transaction.motifRejet}` : ''}`;
       case TransactionStatus.ANNULEE: return `${label} annulé.`;
     }
@@ -1043,15 +1049,15 @@ export class TransactionService implements OnModuleInit, OnModuleDestroy {
     }
     if (transaction.type === TransactionType.DEPOT && transaction.statut === TransactionStatus.VALIDEE) {
       const result = transaction.methodeValidation === ValidationMethod.ADMIN_MANUEL
-        ? 'Après vérification, nous avons accepté votre réclamation et crédité votre compte 1XBET.'
-        : 'Votre dépôt a été crédité avec succès sur votre compte 1XBET.';
+        ? `Après vérification, nous avons accepté votre réclamation et crédité votre compte ${bookmakerOf(transaction)}.`
+        : `Votre dépôt a été crédité avec succès sur votre compte ${bookmakerOf(transaction)}.`;
       return result;
     }
     if (transaction.statut === TransactionStatus.REJETEE) {
       return `Nous avons refusé votre ${transaction.type === TransactionType.DEPOT ? 'dépôt' : 'retrait'}.${transaction.motifRejet ? ` ${transaction.motifRejet}` : ''}`;
     }
     if (transaction.type === TransactionType.RETRAIT && transaction.statut === TransactionStatus.VALIDEE) {
-      return `Votre compte 1XBET a été débité${transaction.montant > 0 ? ` de ${transaction.montant} FCFA` : ''}. Le retrait a été envoyé au numéro indiqué.`;
+      return `Votre compte ${bookmakerOf(transaction)} a été débité${transaction.montant > 0 ? ` de ${transaction.montant} FCFA` : ''}. Le retrait a été envoyé au numéro indiqué.`;
     }
     if (transaction.statut === TransactionStatus.EN_ATTENTE_AUTO && transaction.type === TransactionType.DEPOT) {
       return 'Nous vérifions votre paiement.';
@@ -1071,7 +1077,7 @@ export class TransactionService implements OnModuleInit, OnModuleDestroy {
       ...(transaction.montant > 0 ? [`Montant : ${transaction.montant} FCFA`] : []),
       `Numéro : ${transaction.numeroTelephone || '—'}`,
       ...(transaction.type === TransactionType.RETRAIT && transaction.compteDestinataire
-        ? [`Compte 1XBET : ${transaction.compteDestinataire}`]
+        ? [`Compte ${bookmakerOf(transaction)} : ${transaction.compteDestinataire}`]
         : []),
       ...(transaction.codeRetrait ? [`Code de retrait : ${transaction.codeRetrait}`] : []),
       ...(transaction.referencePaiement ? [`Référence : ${transaction.referencePaiement}`] : []),

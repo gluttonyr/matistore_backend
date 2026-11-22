@@ -97,6 +97,10 @@ emitTransactionStatusChanged(transaction: {
   };
   this.server.to(`user:${transaction.user.id}`).emit('transactionStatusChanged', payload);
   this.server.to('admins').emit('transactionStatusChanged', payload);
+  // A validated deposit may move the referral tournament ranking: clients refresh it.
+  if (transaction.type === 'DEPOT' && transaction.statut === 'VALIDEE') {
+    this.server.emit('referralRankingChanged', {});
+  }
   if (transaction.discussionTrackingId) {
     this.server.to('admins').emit('discussionUpdated', {
       discussionId: transaction.discussionTrackingId,

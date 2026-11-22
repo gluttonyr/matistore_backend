@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { LessThan, Repository } from 'typeorm';
+import { DataSource, LessThan, Repository } from 'typeorm';
 import { PushNotificationService } from '../notifications/push-notification.service';
 import { PushDeviceService } from '../push-device/push-device.service';
 import { UtilisateurService } from '../utilisateur/utilisateur.service';
@@ -15,7 +15,26 @@ export class AppNotificationService {
     private readonly userService: UtilisateurService,
     private readonly pushDeviceService: PushDeviceService,
     private readonly pushNotificationService: PushNotificationService,
+    private readonly dataSource: DataSource,
   ) {}
+
+  /** Coupon notifications carry the coupon, so the list can show it as a ticket. */
+  private async withCoupons(items: AppNotification[]) {
+    const ids = items.map((n) => n.link?.startsWith('coupon:') ? n.link.slice(7) : null).filter((id): id is string => !!id);
+    const coupons = new Map<string, any>();
+    if (ids.length) {
+      const rows: any[] = await this.dataSource.query(
+        `SELECT c.id, c.number, c.image_url AS "imageUrl", c.codes, c.odds, c.note, c.status, c.created_at AS "createdAt"
+         FROM coupons c WHERE c.id = ANY($1::uuid[])`,
+        [ids],
+      ).catch(() => []);
+      rows.forEach((row) => coupons.set(row.id, row));
+    }
+    return items.map((n) => ({
+      ...this.toResponse(n),
+      coupon: n.link?.startsWith('coupon:') ? coupons.get(n.link.slice(7)) ?? null : null,
+    }));
+  }
 
   async findForUser(userId: number, pagination?: { limit: number; beforeId?: number }) {
     if (pagination) {
@@ -29,7 +48,7 @@ export class AppNotificationService {
       const hasMore = notifications.length > pagination.limit;
       const items = notifications.slice(0, pagination.limit);
       return {
-        items: items.map((notification) => this.toResponse(notification)),
+        items: await this.withCoupons(items),
         hasMore,
         nextCursor: hasMore ? items[items.length - 1]?.id ?? null : null,
       };
@@ -39,7 +58,7 @@ export class AppNotificationService {
       where: { user: { id: userId } },
       order: { createdAt: 'DESC', id: 'DESC' },
     });
-    return notifications.map((notification) => this.toResponse(notification));
+    return this.withCoupons(notifications);
   }
 
   async createForUser(userId: number, title: string, body: string) {
@@ -55,7 +74,11 @@ export class AppNotificationService {
     return this.toResponse(notification);
   }
 
-  async broadcast(dto: BroadcastAppNotificationDto, adminId: number) {
+  async broadcast(
+    dto: BroadcastAppNotificationDto,
+    adminId: number,
+    extras?: { link?: string; pushData?: Record<string, unknown> },
+  ) {
     const title = typeof dto?.title === 'string' ? dto.title.trim() : '';
     const body = typeof dto?.body === 'string' ? dto.body.trim() : '';
     const imageUrl = typeof dto?.imageUrl === 'string' ? dto.imageUrl.trim() : undefined;
@@ -80,6 +103,7 @@ export class AppNotificationService {
           title,
           body,
           imageUrl: imageUrl ?? null,
+          link: extras?.link ?? null,
           user: { id: userId } as any,
           createdBy: String(adminId),
           updatedBy: String(adminId),
@@ -92,7 +116,7 @@ export class AppNotificationService {
       tokens,
       title,
       body,
-      { type: 'ADMIN_BROADCAST' },
+      extras?.pushData ?? { type: 'ADMIN_BROADCAST' },
       imageUrl,
     );
     await this.pushDeviceService.deactivateTokens(delivery.invalidTokens);
@@ -112,6 +136,7 @@ export class AppNotificationService {
       title: notification.title,
       body: notification.body,
       imageUrl: notification.imageUrl ?? null,
+      link: notification.link ?? null,
       createdAt: notification.createdAt,
     };
   }

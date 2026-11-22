@@ -7,6 +7,14 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { createHash } from 'node:crypto';
 import { AddPlayerDepositDto } from './dto/add-player-deposit.dto';
+import { DEFAULT_BOOKMAKER } from '../bookmaker/bookmaker.constants';
+
+/**
+ * 1XBET and MELBET expose the same cash-desk API (same routes, same signatures): only the keys and the
+ * base URL differ. Each bookmaker reads its own variables from the .env, prefixed below; a bookmaker
+ * added later in the database reads <CODE>_HASH, <CODE>_CASHIER_PASS, <CODE>_CASHDESK_ID, <CODE>_API_BASE_URL.
+ */
+const ENV_PREFIX: Record<string, string> = { '1XBET': 'SERVCUL', MELBET: 'MELBET' };
 
 export interface ServculPlayer {
   currencyId: number;
@@ -27,6 +35,7 @@ export interface ServculPayoutDto {
 }
 
 type ServculConfig = {
+  bookmaker: string;
   baseUrl: string;
   hash: string;
   cashierPass: string;
@@ -40,8 +49,12 @@ export class ServculService {
 
   constructor(private readonly config: ConfigService) {}
 
-  async addPlayerDeposit(userId: number, body: AddPlayerDepositDto): Promise<ServculDepositResult> {
-    const config = this.getConfig();
+  async addPlayerDeposit(
+    userId: number,
+    body: AddPlayerDepositDto,
+    bookmaker: string = DEFAULT_BOOKMAKER,
+  ): Promise<ServculDepositResult> {
+    const config = this.getConfig(bookmaker);
     const sign = this.createOperationSignature(
       config,
       body.lng,
@@ -75,8 +88,12 @@ export class ServculService {
     return normalized;
   }
 
-  async payoutPlayer(userId: number, body: ServculPayoutDto): Promise<ServculDepositResult> {
-    const config = this.getConfig();
+  async payoutPlayer(
+    userId: number,
+    body: ServculPayoutDto,
+    bookmaker: string = DEFAULT_BOOKMAKER,
+  ): Promise<ServculDepositResult> {
+    const config = this.getConfig(bookmaker);
     const code = body.code.trim();
     if (!code) throw new BadGatewayException('Le code de retrait est requis');
     const sign = this.createOperationSignature(
@@ -106,10 +123,11 @@ export class ServculService {
     return normalized;
   }
 
-  async findPlayer(userId: number): Promise<ServculPlayer | null> {
-    const config = this.getConfig();
+  async findPlayer(userId: number, bookmaker: string = DEFAULT_BOOKMAKER): Promise<ServculPlayer | null> {
+    const config = this.getConfig(bookmaker);
     this.logger.log(JSON.stringify({
       event: 'servcul.player.lookup.started',
+      bookmaker: config.bookmaker,
       userId,
       cashdeskId: config.cashdeskId,
       endpoint: this.diagnosticEndpoint(config, `Users/${userId}`),
@@ -194,23 +212,28 @@ export class ServculService {
     };
   }
 
-  private getConfig(): ServculConfig {
-    const hash = this.config.get<string>('SERVCUL_HASH')?.trim();
-    const cashierPass = this.config.get<string>('SERVCUL_CASHIER_PASS')?.trim();
-    const cashdeskId = this.config.get<string>('SERVCUL_CASHDESK_ID')?.trim();
-    const baseUrl =
-      this.config.get<string>('SERVCUL_API_BASE_URL')?.trim() || this.defaultBaseUrl;
+  private getConfig(bookmakerCode: string): ServculConfig {
+    const bookmaker = (bookmakerCode.trim() || DEFAULT_BOOKMAKER).toUpperCase();
+    const prefix = ENV_PREFIX[bookmaker] ?? bookmaker.replace(/[^A-Z0-9]/g, '_');
+    const read = (name: string) => this.config.get<string>(`${prefix}_${name}`)?.trim();
+    const hash = read('HASH');
+    const cashierPass = read('CASHIER_PASS');
+    const cashdeskId = read('CASHDESK_ID');
+    // Only 1XBET has a known default address; another bookmaker must give its own.
+    const baseUrl = read('API_BASE_URL') || (bookmaker === DEFAULT_BOOKMAKER ? this.defaultBaseUrl : '');
 
-    if (!hash || !cashierPass || !cashdeskId) {
+    if (!hash || !cashierPass || !cashdeskId || !baseUrl) {
+      const urlHint = bookmaker === DEFAULT_BOOKMAKER ? '' : ` et ${prefix}_API_BASE_URL`;
       throw new ServiceUnavailableException(
-        'Configuration Servcul incomplète: renseignez SERVCUL_HASH, SERVCUL_CASHIER_PASS et SERVCUL_CASHDESK_ID dans le .env du backend',
+        `Configuration ${bookmaker} incomplète: renseignez ${prefix}_HASH, ${prefix}_CASHIER_PASS, ${prefix}_CASHDESK_ID${urlHint} dans le .env du backend`,
       );
     }
     if (!/^\d+$/.test(cashdeskId)) {
-      throw new ServiceUnavailableException('SERVCUL_CASHDESK_ID doit être un entier positif');
+      throw new ServiceUnavailableException(`${prefix}_CASHDESK_ID doit être un entier positif`);
     }
 
     return {
+      bookmaker,
       baseUrl: baseUrl.replace(/\/+$/, ''),
       hash,
       cashierPass,

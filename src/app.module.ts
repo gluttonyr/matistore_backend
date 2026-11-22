@@ -38,11 +38,17 @@ import { Transaction } from './transaction/entities/transaction.entity';
 import { AppNotification } from './app-notification/entities/app-notification.entity';
 import { AppNotificationModule } from './app-notification/app-notification.module';
 import { ServculModule } from './servcul/servcul.module';
+import { BookmakerModule } from './bookmaker/bookmaker.module';
+import { Bookmaker } from './bookmaker/entities/bookmaker.entity';
 import { AdminCaptureDevice } from './transaction/entities/admin-capture-device.entity';
 import { AdminCaptureState } from './transaction/entities/admin-capture-state.entity';
 import { SmsCapture } from './sms-capture/entities/sms-capture.entity';
 import { SmsCaptureDeviceToken } from './sms-capture/entities/sms-capture-device-token.entity';
 import { SmsCaptureModule } from './sms-capture/sms-capture.module';
+import { ReferralModule } from './referral/referral.module';
+import { CouponModule } from './coupon/coupon.module';
+import { Coupon } from './coupon/coupon.entity';
+import { ReferralProfile, ReferralRound, ReferralSettings, ReferralWinner } from './referral/entities/referral.entities';
 
 @Module({
   imports: [
@@ -79,6 +85,12 @@ import { SmsCaptureModule } from './sms-capture/sms-capture.module';
       AppNotification,
       SmsCapture,
       SmsCaptureDeviceToken,
+      Bookmaker,
+      ReferralProfile,
+      ReferralSettings,
+      ReferralRound,
+      ReferralWinner,
+      Coupon,
     ],
 
     synchronize: config.get('NODE_ENV') !== 'production',
@@ -106,7 +118,10 @@ import { SmsCaptureModule } from './sms-capture/sms-capture.module';
     TransactionModule,
     AppNotificationModule,
     ServculModule,
+    BookmakerModule,
     SmsCaptureModule,
+    ReferralModule,
+    CouponModule,
   ],
   controllers: [AppController],
   providers: [AppService],

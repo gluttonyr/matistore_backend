@@ -6,20 +6,30 @@ import {
   ParseIntPipe,
   Post,
   Body,
+  Query,
   UseGuards,
 } from '@nestjs/common';
+import { BookmakerService } from '../bookmaker/bookmaker.service';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiResponse } from '../common/api-response.interface';
 import { ServculService } from './servcul.service';
 
 @Controller('servcul')
 export class ServculController {
-  constructor(private readonly servculService: ServculService) {}
+  constructor(
+    private readonly servculService: ServculService,
+    private readonly bookmakerService: BookmakerService,
+  ) {}
 
+  /** `bookmaker` (e.g. MELBET) is absent from apps installed before the bookmaker choice: 1XBET then. */
   @Get('users/:userId')
   @UseGuards(AuthGuard('jwt'))
-  async findPlayer(@Param('userId', ParseIntPipe) userId: number): Promise<ApiResponse> {
-    const data = await this.servculService.findPlayer(userId);
+  async findPlayer(
+    @Param('userId', ParseIntPipe) userId: number,
+    @Query('bookmaker') bookmakerCode?: string,
+  ): Promise<ApiResponse> {
+    const bookmaker = await this.bookmakerService.requireActive(bookmakerCode);
+    const data = await this.servculService.findPlayer(userId, bookmaker.code);
     return { data, message: 'Joueur récupéré', status: 200 };
   }
 

@@ -11,6 +11,7 @@ import { ConflictException } from '@nestjs/common';
 import { TransactionRepository } from './transaction.repository';
 import { TransactionService } from './transaction.service';
 import { ServculService } from '../servcul/servcul.service';
+import { BookmakerService } from '../bookmaker/bookmaker.service';
 import { AppNotificationService } from '../app-notification/app-notification.service';
 import { AdminCaptureAvailabilityService } from './admin-capture-availability.service';
 
@@ -127,6 +128,12 @@ describe('TransactionService automatic deposit verification', () => {
         { provide: UtilisateurService, useValue: userService },
         { provide: OperateurService, useValue: operatorService },
         { provide: ServculService, useValue: servculService },
+        { provide: BookmakerService, useValue: {
+          requireActive: jest.fn().mockImplementation(async (code?: string) => {
+            const wanted = (code || '1XBET').toUpperCase();
+            return { code: wanted, nom: wanted, active: true };
+          }),
+        } },
         { provide: AppNotificationService, useValue: { createForUser: jest.fn().mockResolvedValue(undefined) } },
         { provide: AdminCaptureAvailabilityService, useValue: {
           getStatus: jest.fn().mockResolvedValue({ available: true, deviceAvailable: true, manualOverride: false }),
@@ -155,8 +162,39 @@ describe('TransactionService automatic deposit verification', () => {
       compteDestinataire: '123456789',
     }, 7)).rejects.toThrow('ID 1XBET introuvable');
 
-    expect(servculService.findPlayer).toHaveBeenCalledWith(123456789);
+    expect(servculService.findPlayer).toHaveBeenCalledWith(123456789, '1XBET');
     expect(repository.createDepositIfNoOpen).not.toHaveBeenCalled();
+  });
+
+  it('checks the account with the chosen bookmaker and stores it on the deposit', async () => {
+    await service.create({
+      type: TransactionType.DEPOT,
+      montant: 1000,
+      operateur: 'TMoney',
+      numeroTelephone: '+22890000000',
+      compteDestinataire: '123456789',
+      bookmaker: 'melbet',
+    }, 7);
+
+    expect(servculService.findPlayer).toHaveBeenCalledWith(123456789, 'MELBET');
+    expect(repository.createDepositIfNoOpen).toHaveBeenCalledWith(
+      7,
+      expect.objectContaining({ bookmaker: 'MELBET' }),
+      expect.anything(),
+      expect.anything(),
+    );
+  });
+
+  it('names the chosen bookmaker when its account is not found', async () => {
+    servculService.findPlayer.mockResolvedValue(null);
+    await expect(service.create({
+      type: TransactionType.DEPOT,
+      montant: 1000,
+      operateur: 'TMoney',
+      numeroTelephone: '+22890000000',
+      compteDestinataire: '123456789',
+      bookmaker: 'MELBET',
+    }, 7)).rejects.toThrow('ID MELBET introuvable');
   });
 
   it('rejects a second deposit while the client has an open deposit', async () => {
@@ -271,7 +309,7 @@ describe('TransactionService automatic deposit verification', () => {
     expect(servculService.addPlayerDeposit).toHaveBeenCalledWith(123456789, {
       lng: 'ru',
       summa: 1000,
-    });
+    }, '1XBET');
   });
 
   it('rejects a notification reference already attached to a transaction with a clear message', async () => {
@@ -757,7 +795,7 @@ describe('TransactionService automatic deposit verification', () => {
     expect(servculService.addPlayerDeposit).toHaveBeenCalledWith(123456789, {
       lng: 'ru',
       summa: 1000,
-    });
+    }, '1XBET');
   });
 
   it('does not validate a manually verified deposit when Servcul rejects its credit', async () => {

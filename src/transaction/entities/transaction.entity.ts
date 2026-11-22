@@ -22,6 +22,8 @@ export class Transaction {
   @Column({ type: 'enum', enum: TransactionStatus, default: TransactionStatus.EN_ATTENTE_AUTO }) statut!: TransactionStatus;
   @Column({ type: 'int' }) montant!: number;
   @Column({ type: 'varchar', length: 100, nullable: true }) operateur?: string;
+  // Bookmaker credited or debited (Bookmaker.code); transactions created before the choice are 1XBET.
+  @Column({ type: 'varchar', length: 20, default: '1XBET' }) bookmaker!: string;
   @Column({ type: 'varchar', length: 30, nullable: true }) numeroTelephone?: string;
   @Column({ type: 'varchar', length: 100, nullable: true }) compteDestinataire?: string;
   @Column({ name: 'code_retrait', type: 'varchar', length: 255, nullable: true }) codeRetrait?: string;
