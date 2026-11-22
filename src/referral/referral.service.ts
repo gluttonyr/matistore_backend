@@ -239,7 +239,7 @@ export class ReferralService implements OnModuleInit, OnModuleDestroy {
     const profile = await this.profileOf(userId);
     const round = await this.getActiveRound();
     const parrain = profile.parrainId
-      ? await this.dataSource.getRepository(User).findOne({ where: { id: profile.parrainId }, select: { id: true, prenom: true, nom: true } })
+      ? await this.dataSource.getRepository(User).findOne({ where: { id: profile.parrainId }, select: { id: true, prenom: true, nom: true, image: true } })
       : null;
     const filleuls: any[] = await this.dataSource.query(
       `SELECT u."trackingId" AS "trackingId", u.prenom, u.nom, u.image, rp.parrain_since AS "since",
